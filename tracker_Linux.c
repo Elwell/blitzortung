@@ -6,13 +6,18 @@
     Name this file to "tracker_Linux.c" and compile it by
     > g++ -Wall -lm -o tracker_Linux tracker_Linux.c
 
+    OpenWrt users should compile it by
+    > g++ -DOpenWrt -Wall -lm -o tracker_Linux_OpenWrt tracker_Linux.c
+
     then try
-    > ./tracker_blitzortun -h
+    > ./tracker_Linux -h
 */
 
 // if you have problems with nonterminating child processes, uncomment the follogin line
 #define KERNEL_2_4
 
+// if you use Firmware Version 10 or less, uncomment the following line
+// #define FIRMWARE_VER_10
 
 /******************************************************************************/
 /******************************************************************************/
@@ -37,22 +42,24 @@
 #include <signal.h>
 #include <math.h>
 
+#ifdef OpenWrt
+long double fabsl(long double x);
+#endif
+
 /******************************************************************************/
 /******************************************************************************/
 /******************************************************************************/
 
-#define VERSION                 "LinuxTracker&nbsp;Ver.&nbsp;16.0" // version string send to server
-#define SLEEP_TIME_SEC          20                                 // time interval for sending data
-//#define STRIKES_SERVER_ADDR     "85.214.99.132"                    // server address
-#define STRIKES_SERVER_ADDR     "rechenserver.de"                  // server address
-#define STRIKE_SERVER_PORT      8308                               // server port
-#define STRING_BUFFER_SIZE      512                                // maximal size for strings
-#define AD_MAX_VALUE            128                                // maximal absolut value for channel A and B
-#define AD_MAX_VOLTAGE          2500                               // maximal absolute millivolt for channel A and B
-#define AD_THRESHOLD_VOLTAGE    500                                // absolute threshold millivolt for channel A and B
-#define STRIKE_BUFFER_SIZE      10240                              // Buffer size for strikes
-#define RING_BUFFER_SIZE        60                                 // ring buffer size for averaged computaion of lat, lon, alt
-#define PRECISION               0.000001000                        // time presision to reach befor sende
+#define VERSION                 "LinuxTracker&nbsp;Ver.&nbsp;17.0.B" // version string send to server
+#define SLEEP_TIME_SEC          20                                   // time interval for sending data
+#define STRIKES_SERVER_ADDR     "rechenserver.de"                    // server name / ip address
+#define STRIKE_SERVER_PORT      8308                                 // server port
+#define STRING_BUFFER_SIZE      512                                  // maximal buffer size for strings
+#define THRESHOLD               25                                   // threshold 
+#define STRIKE_BUFFER_SIZE      10240                                // Buffer size for strikes
+#define RING_BUFFER_SIZE        60                                   // ring buffer size for averaged computaion of lat, lon, alt
+#define PRECISION               0.000001000                          // time presision to reach befor sending data
+
 
 // initialization for San Jose Navigation moduls, 4800 baud
 char init_gps_sjn[]="\
@@ -356,7 +363,7 @@ void send_data ()
       strikes[cnt3].year, strikes[cnt3].mon, strikes[cnt3].day,
       strikes[cnt3].hour, strikes[cnt3].min, strikes[cnt3].sec, strikes[cnt3].nsec,
       strikes[cnt3].lat, strikes[cnt3].lon, strikes[cnt3].alt, username, password);
-    sprintf (buf, "%s %.6Lf %.6Lf", buf, (long double)strikes[cnt3].A/(long double)AD_MAX_VALUE, (long double)strikes[cnt3].B/(long double)AD_MAX_VALUE);
+    sprintf (buf, "%s %.6Lf %.6Lf", buf, (long double)strikes[cnt3].A/128.0, (long double)strikes[cnt3].B/128.0);
     sprintf (buf, "%s %c %s\n", buf, strikes[cnt3].status, VERSION);
     if (send (sockfd, buf, strlen(buf), 0) == -1) {
       exit (0); }
@@ -378,14 +385,17 @@ void send_data ()
 void evaluate (char * buf, int f)
 {
   int year, mon, day, hour, min, sec;
-  int lat_deg, lon_deg, sat;
-  long double lat_min, lon_min, alt;
+  int lat_deg, lon_deg, sat= 0;
+  long double lat_min, lon_min, alt= 0.0;
   char ns, we, status;
   long long counter, difference;
   int A[64], B[64], best_A, best_B;
+  int signal_found= 0;
 
-  if (sscanf (buf, "$BLSEC,%llx,%c,%2d%2d%2d,%2d%2d%2d,%2d%Lf,%c,%3d%Lf,%c,%Lf,M,%d",
-      &counter, &status, &hour, &min, &sec, &day, &mon, &year, &lat_deg, &lat_min, &ns, &lon_deg, &lon_min, &we, &alt, &sat) == 16) {
+  if ((sscanf (buf, "$BLSEC,%llx,%c,%2d%2d%2d,%2d%2d%2d,%2d%Lf,%c,%3d%Lf,%c,%Lf,M,%d*",
+      &counter, &status, &hour, &min, &sec, &day, &mon, &year, &lat_deg, &lat_min, &ns, &lon_deg, &lon_min, &we, &alt, &sat) == 16) ||
+      (sscanf (buf, "$BLSEC,%2d%2d%2d,%2d%2d%2d,%c,%2d%Lf,%c,%3d%Lf,%c,%llx*",
+      &hour, &min, &sec, &day, &mon, &year, &status, &lat_deg, &lat_min, &ns, &lon_deg, &lon_min, &we, &counter) == 14)) {
 
     last_lat= lat_deg+lat_min/60.0;
     if (ns == 'S') {
@@ -446,7 +456,7 @@ void evaluate (char * buf, int f)
       if (cld_pid > 0) {
         kill (cld_pid, SIGKILL); }
 #ifdef KERNEL_2_4
-      signal(SIGCHLD, SIG_IGN);  // Added to kill Children by ignoring SIGCHLD
+      signal(SIGCHLD, SIG_IGN);  // Added to kill children by ignoring SIGCHLD
 #endif
       cld_pid= fork ();
       if (cld_pid == 0) {
@@ -454,14 +464,25 @@ void evaluate (char * buf, int f)
       cnt3= cnt2;
       last_time_send= last_time; } }
 
-  else if (sscanf (buf, "$BLSEQ,%6llx,", &counter) == 1) {
+  else if (sscanf (buf, "$BLSIG,%6llx,%x,%x*", &counter, &A[0], &B[0]) == 3) {
+#ifdef FIRMWARE_VER_10
+    A[0]/=2;
+    B[0]/=2;
+#endif
+    for (int i= 1; i<64; i++) {
+      A[i]= 128;
+      B[i]= 128; }
+    signal_found= 1; }
 
+  else if (sscanf (buf, "$BLSEQ,%6llx,", &counter) == 1) {
     int i= 0;
     buf+=14;
     while ((i<64) && (sscanf (buf, "%2x%2x", &A[i], &B[i]) == 2)) {
       i++;
       buf+=4; }
+    signal_found= 2; }
 
+  if (signal_found > 0) { 
     if (counter >  counter_last) {
       difference= counter-counter_last; }
     else {
@@ -472,21 +493,21 @@ void evaluate (char * buf, int f)
     int max_amplitude= 0;
     int max_index= 0;
     for (int i=0; i<64; i++) {
-      A[i]-= AD_MAX_VALUE;
-      B[i]-= AD_MAX_VALUE;
+      A[i]-= 128;
+      B[i]-= 128;
       int amplitude= A[i]*A[i]+B[i]*B[i];
       if (amplitude > max_amplitude) {
         max_amplitude= amplitude;
         best_A= A[i];
         best_B= B[i];
         max_index= i; } }
-    if ((abs(A[max_index]) < AD_MAX_VALUE*AD_THRESHOLD_VOLTAGE/AD_MAX_VOLTAGE)&&
-        (abs(B[max_index]) < AD_MAX_VALUE*AD_THRESHOLD_VOLTAGE/AD_MAX_VOLTAGE)) {
-      best_A= AD_MAX_VALUE*AD_THRESHOLD_VOLTAGE/AD_MAX_VOLTAGE;
-      best_B= 0;
+    if ((abs(A[max_index]) < THRESHOLD)&&
+        (abs(B[max_index]) < THRESHOLD)) {
+      best_A= THRESHOLD;
+      best_B= THRESHOLD/2;
       max_index= -1; }
 
-    last_nsec+= (max_index-1)*3125ll; // time correction
+    last_nsec+= (max_index)*3125ll; // time correction
 
     if (verbose_flag) {
       printf ("%7lld", difference);
