@@ -44,7 +44,7 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 /******************************************************************************/
 /******************************************************************************/
 
-#define VERSION                 "LT&nbsp;Ver.&nbsp;18" // version string send to server
+#define VERSION                 "LT&nbsp;Ver.&nbsp;19" // version string send to server
 #define SERVER_ADDR             "rechenserver.de"      // server address
 #define SERVER_PORT             8308                   // server port
 #define STRING_BUFFER_SIZE      2048                   // maximal buffer size for the strings we use
@@ -79,7 +79,9 @@ bool last_com_ok= false, last_last_com_ok= false;
 bool last_last_time_ok= false, last_last_pos_ok= false;
 char last_data[STRING_BUFFER_SIZE];
 char last_Firmware_Version[STRING_BUFFER_SIZE];
+long long last_transmition_time= 0ll;
 
+long long now_time= 0ll;
 long long dif_sum= 1;
 long double lat_sum;
 long double lon_sum;
@@ -204,6 +206,67 @@ $PSRF103,08,00,00,01*00\n\
 $PSRF100,1,38400,8,1,0*00\n";
 
 /******************************************************************************/
+/***** time functions *********************************************************/
+/******************************************************************************/
+
+// convert utc calender time to epoche nanoseconds
+long long utc_ctime_to_ensec (int year, int mon, int day, int hour, int min, long double sec_nsec)
+{
+  int sec= (int)sec_nsec;
+  long long nsec= (long long)(sec_nsec*1000000000ll)-sec*1000000000ll;
+  struct tm t;
+  t.tm_year= year-1900;
+  t.tm_mon= mon-1;
+  t.tm_mday= day;
+  t.tm_hour= hour;
+  t.tm_min= min;
+  t.tm_sec= (int)sec;
+  time_t esec= timegm(&t);
+  return ((long long)esec*1000000000ll+nsec);
+}
+
+// convert epoche nanoseconds to utc calender time
+void ensec_to_utc_ctime (long long ensec, int *year, int *mon, int *day, int *hour, int *min, long double *sec_nsec)
+{
+  time_t esec= ensec/1000000000ll;
+  struct tm *t = gmtime (&esec);
+  *year= t->tm_year+1900;
+  *mon= t->tm_mon+1;
+  *day= t->tm_mday;
+  *hour= t->tm_hour;
+  *min= t->tm_min;
+  *sec_nsec= t->tm_sec+(ensec%1000000000ll)/1000000000.0l;
+}
+
+// return epoche nanoseconds
+long long ensec_time ()
+{
+  struct timeval t;
+  gettimeofday (&t,(struct timezone *)0);
+  return ((long long)(t.tv_sec)*1000000000ll+(long long)t.tv_usec*1000ll);
+}
+
+/******************************************************************************/
+/***** write to log file ******************************************************/
+/******************************************************************************/
+
+void write_to_log (const char *text)
+{
+  int year, mon, day, min, hour;
+  long double sec_nsec;
+  char buf [STRING_BUFFER_SIZE];
+
+  ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
+  sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d,", year, mon, day, hour, min, sec_nsec, (int)getpid());
+
+  fprintf (log_fd, "%s %s", buf, text);
+  fflush (log_fd);
+  if (verbose_flag) {
+    printf ("%s %s", buf, text);
+    fflush (stdout); }
+}
+
+/******************************************************************************/
 /***** initialization *********************************************************/
 /******************************************************************************/
 
@@ -299,89 +362,27 @@ void init_gps (const char *serial_device, char *gps_type, int baudrate)
       exit (-1); }
     set_baudrate (f, br);
     br+= br;
-    write (f, "55555\n55555\n55555\n", 18); // this is only for a synchronization
+    write (f, "55555\n55555\n55555\n", 18); // this is only for synchronization
     write (f, init_string, strlen(init_string));
     close (f); }
-}
-
-/******************************************************************************/
-/***** time functions *********************************************************/
-/******************************************************************************/
-
-// convert utc calender time to epoche nanoseconds
-long long utc_ctime_to_ensec (int year, int mon, int day, int hour, int min, long double sec_nsec)
-{
-  int sec= (int)sec_nsec;
-  long long nsec= (long long)(sec_nsec*1000000000ll)-sec*1000000000ll;
-  struct tm t;
-  t.tm_year= year-1900;
-  t.tm_mon= mon-1;
-  t.tm_mday= day;
-  t.tm_hour= hour;
-  t.tm_min= min;
-  t.tm_sec= (int)sec;
-  time_t esec= timegm(&t);
-  return ((long long)esec*1000000000ll+nsec);
-}
-
-// convert epoche nanoseconds to utc calender time
-void ensec_to_utc_ctime (long long ensec, int *year, int *mon, int *day, int *hour, int *min, long double *sec_nsec)
-{
-  time_t esec= ensec/1000000000ll;
-  struct tm *t = gmtime (&esec);
-  *year= t->tm_year+1900;
-  *mon= t->tm_mon+1;
-  *day= t->tm_mday;
-  *hour= t->tm_hour;
-  *min= t->tm_min;
-  *sec_nsec= t->tm_sec+(ensec%1000000000ll)/1000000000.0l;
-}
-
-// return epoche nanoseconds
-long long ensec_time ()
-{
-  struct timeval t;
-  gettimeofday (&t,(struct timezone *)0);
-  return ((long long)(t.tv_sec)*1000000000ll+(long long)t.tv_usec*1000ll);
 }
 
 /******************************************************************************/
 /***** send_strike ************************************************************/
 /******************************************************************************/
 
-void send_strike (const char *server, int port, const char *username, const char *password)
+void send_strike (int sock_id, struct sockaddr *serv_addr, const char *username, const char *password)
 {
-  int sock_id= socket (AF_INET, SOCK_DGRAM, 0);
-  if (sock_id == -1) {
-    fprintf (log_fd, "error: socket ()\n");
-    fflush (log_fd);
-    return; }
-
-  struct sockaddr_in serv_addr;
-  serv_addr.sin_family= AF_INET;
-  serv_addr.sin_port= htons (port);
-  serv_addr.sin_addr.s_addr= inet_addr (server);
-
-  if (serv_addr.sin_addr.s_addr == INADDR_NONE) {
-    /* host not given by IP but by name */
-    struct hostent *host_info= gethostbyname (server);
-    if (host_info == NULL) {
-      fprintf (log_fd, "error: gethostbyname ()");
-      fflush (log_fd); }
-    memcpy((char*) &serv_addr.sin_addr.s_addr, host_info->h_addr, host_info->h_length); }
-
   char buf [STRING_BUFFER_SIZE];
   sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02d.%09lld %.6Lf %.6Lf %.0Lf %s %s %c %d %d %d %d %s %s\n",
     last_year, last_mon, last_day, last_hour, last_min, last_sec, last_nsec, lat_average_x, lon_average_x, alt_average_x, username, password, last_status, last_channels, last_values, last_bits, last_nsec_lag, last_data, VERSION);
 
-  if (sendto (sock_id, buf, strlen (buf), 0, (sockaddr *) &serv_addr, sizeof (sockaddr)) == -1) {
-    fprintf (log_fd, "error: sendto ()");
-    fflush (log_fd); }
+  if (sendto (sock_id, buf, strlen (buf), 0, serv_addr, sizeof (sockaddr)) == -1) {
+    write_to_log ("error: sendto ()\n");
+    return; }
   if (verbose_flag) { 
     printf ("%s", buf);
     fflush (stdout); }
-
-  close (sock_id);
 }
 
 /******************************************************************************/
@@ -390,46 +391,40 @@ void send_strike (const char *server, int port, const char *username, const char
 
 void log_precision ()
 {
-  int year, mon, day, min, hour;
-  long double sec_nsec;
   char buf [STRING_BUFFER_SIZE];
 
-  ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
-  sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d,", year, mon, day, hour, min, sec_nsec, (int)getpid());
-
   if ((!(last_last_com_ok))&&(last_com_ok)) {
-    fprintf (log_fd, "%s GPS data sentences ok\n", buf);
-    fflush (log_fd); }
+    write_to_log ("GPS data sentences ok\n"); }
   if ((last_last_com_ok)&&(!(last_com_ok))) {
-    fprintf (log_fd, "%s GPS data sentences lost\n", buf);
-    fflush (log_fd); }
+    write_to_log ("GPS data sentences lost\n"); }
 
   if (last_status != last_last_status) {
-    fprintf (log_fd, "%s GPS status changed to '%c'\n", buf, last_status);
-    fflush (log_fd); }
-
-  if ((!(last_last_time_ok))&&(last_time_ok)) {
-    fprintf (log_fd, "%s 1PPS signal ok, %+.0Lf nsec\n", buf, time_precision*1000000000.0l);
-    fflush (log_fd); }
-  if ((last_last_time_ok)&&(!(last_time_ok))) {
-    fprintf (log_fd, "%s 1PPS signal inaccurate, %+.0LF nsec\n", buf, time_precision*1000000000.0l);
-    fflush (log_fd); }
+    sprintf (buf, "GPS status changed to '%c'\n", last_status);
+    write_to_log (buf); }
 
   if ((!(last_last_pos_ok))&&(last_pos_ok)) {
-    fprintf (log_fd, "%s Position stable, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", buf, lat_average, lon_average, alt_average);
-    fflush (log_fd); }
+    sprintf (buf, "Position stable, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", lat_average, lon_average, alt_average);
+    write_to_log (buf); }
   if ((last_last_pos_ok)&&(!(last_pos_ok))) {
-    fprintf (log_fd, "%s Position lost, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", buf, last_lat, last_lon, last_alt);
-    fflush (log_fd); }
+    sprintf (buf, "Position lost, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", last_lat, last_lon, last_alt);
+    write_to_log (buf); }
+
+  if ((!(last_last_time_ok))&&(last_time_ok)) {
+    sprintf (buf, "1PPS signal ok, %+.0Lf nsec\n", time_precision*1000000000.0l);
+    write_to_log (buf); }
+  if ((last_last_time_ok)&&(!(last_time_ok))) {
+    sprintf (buf, "1PPS signal inaccurate, %+.0LF nsec\n", time_precision*1000000000.0l);
+    write_to_log (buf); }
 }
 
-void evaluate (const char *line, const char *server, int port, const char *username, const char *password)
+void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const char *username, const char *password)
 {
   int year, mon, day, min, hour, sec= 0, lat_deg, lon_deg, sat= 0, A, B;
-  long double lat, lat_min, lon, lon_min, alt= 0.0l, sec_nsec;
+  long double lat, lat_min, lon, lon_min, alt= 0.0l;
   char ns, we, status;
   long long counter, dif;
   bool BLSIG_found= false;
+  char buf[STRING_BUFFER_SIZE];
 
   // BLSEC sentences
   if ((sscanf (line, "$BLSEC,%llx,%c,%2d%2d%2d,%2d%2d%2d,%2d%Lf,%c,%3d%Lf,%c,%Lf,M,%d*",
@@ -519,6 +514,17 @@ void evaluate (const char *line, const char *server, int port, const char *usern
         printf ("lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf, time precision: %+.0Lf nsec\n", lat_average_x, lon_average_x, alt_average_x, time_precision*1000000000.0l);
         fflush (stdout); }
 
+      now_time= ensec_time ();
+      if ((last_time_ok)&&(last_pos_ok)&&(last_com_ok)&&
+          (now_time > last_transmition_time + 600000000000ll)) {
+        last_channels= 0;
+        last_values= 0;
+        last_bits= 0;
+        last_nsec_lag= 0;
+        strcpy (last_data, "-");
+        last_transmition_time= now_time;
+        send_strike (sock_id, serv_addr, username, password); }
+
       if (logfile_flag) {
         log_precision(); } } }
 
@@ -536,7 +542,7 @@ void evaluate (const char *line, const char *server, int port, const char *usern
     sprintf (last_data, "%03x%03x",A,B);
     last_channels= 2;
     last_values= 1;
-    last_bits= 12;
+    last_bits= 10;
     last_nsec_lag= 0;
     BLSIG_found= true; }
 
@@ -549,7 +555,7 @@ void evaluate (const char *line, const char *server, int port, const char *usern
     BLSIG_found= true; }
 
   // BLSTR sentence type 1
-  else if ((sscanf (line, "$BLSEQ,%6llx,%256s%c", &counter, last_data, &status) == 3)&&(status == '*')) {
+  else if ((sscanf (line, "$BLSTR,%6llx,%256s%c", &counter, last_data, &status) == 3)&&(status == '*')) {
     last_channels= 1;
     last_values= 128;
     last_bits= 8;
@@ -567,16 +573,13 @@ void evaluate (const char *line, const char *server, int port, const char *usern
   // Firmware sentence
   else if (sscanf (line, "Firmware %s", last_Firmware_Version) == 1) {
     if (logfile_flag) {
-      ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
-      fprintf (log_fd, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d, %s", year, mon, day, hour, min, sec_nsec, (int)getpid(), line);
-      fflush (log_fd); } }
+      write_to_log (line); } }
 
   // unknown sentence
   else if (logfile_flag) {
     if (logfile_flag) {
-      ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
-      fprintf (log_fd, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d, unknown sentence: %s", year, mon, day, hour, min, sec_nsec, (int)getpid(), line);
-      fflush (log_fd); } }
+      sprintf (buf, "unknown sentence: %s", line);
+      write_to_log (buf); } }
 
   if (BLSIG_found) { 
     if (counter >  last_counter) {
@@ -591,8 +594,8 @@ void evaluate (const char *line, const char *server, int port, const char *usern
 
     // send only if precision is ok
     if ((last_time_ok)&&(last_pos_ok)&&(last_com_ok)) {
-      send_strike ("lightning.idokep.hu", 10005, username, "********");
-      send_strike (server, port, username, password); } }
+      last_transmition_time= now_time;
+      send_strike (sock_id, serv_addr, username, password); } }
 }
 
 /******************************************************************************/
@@ -660,21 +663,45 @@ int main (int argc, char **argv)
 
   int f= open (serial_device, O_RDWR | O_NOCTTY );
   if (f < 0) {
-    perror ("open()");
+    perror ("open ()");
     exit (-1); }
   set_baudrate (f, baudrate);
 
   if (logfile_flag) {
     log_fd= fopen(logfile, "w");
-    int year, mon, day, min, hour;
-    long double sec_nsec;
-    ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
-    fprintf (log_fd, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d, tracker started\n", year, mon, day, hour, min, sec_nsec, (int)getpid());
-    fflush (log_fd); }
+    write_to_log ("tracker started\n"); }
 
-  char buf[STRING_BUFFER_SIZE];
+  int sock_id= socket (AF_INET, SOCK_DGRAM, 0);
+  if (sock_id == -1) {
+    perror ("socket ()");
+    exit (-1); }
+
+  struct sockaddr_in serv_addr;
+  serv_addr.sin_family= AF_INET;
+  serv_addr.sin_port= htons (SERVER_PORT);
+  serv_addr.sin_addr.s_addr= inet_addr (SERVER_ADDR);
+
+  if (serv_addr.sin_addr.s_addr == INADDR_NONE) {
+    /* host not given by IP but by name */
+    struct hostent *host_info= gethostbyname (SERVER_ADDR);
+    if (host_info == NULL) {
+      write_to_log ("gethostbyname () failed, try again in 10 seconds\n");
+      sleep (10);
+      hostent *host_info= gethostbyname (SERVER_ADDR);
+      if (host_info == NULL) {
+        write_to_log ("gethostbyname () failed, try again in 60 seconds\n");
+        sleep (10);
+        hostent *host_info= gethostbyname (SERVER_ADDR);
+        if (host_info == NULL) {
+          write_to_log ("gethostbyname () failed, give up, check internet connection\n");
+          perror ("gethostbyname ()");
+          close (sock_id);
+          exit (-1); } } }
+     memcpy((char*) &serv_addr.sin_addr.s_addr, host_info->h_addr, host_info->h_length); }
+
   char c;
   int i=0;
+  char buf[STRING_BUFFER_SIZE];
   while (true) {
     if (read (f, &c, 1) == 1) {
       buf [i]= c;
@@ -684,7 +711,6 @@ int main (int argc, char **argv)
         i++; }
       if (c == '\n') {
         buf [i]= 0;
-        evaluate (buf, SERVER_ADDR, SERVER_PORT, username, password);
+        evaluate (buf, sock_id, (struct sockaddr *)&serv_addr, username, password);
         i= 0; } } }
 }
-
