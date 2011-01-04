@@ -1,23 +1,18 @@
 /*
-    Copyright (C) 2003-2010  Egon Wanke <blitzortung@gmx.org>
+    Copyright (C) 2003-2010  Egon Wanke <blitzortung@gmx.org> 1
 
-    Modified for Linux kernel 2.4 by Tim Jefford 2010 <timjefford@kilke.co.uk>
-
-    Name this file to "tracker_Linux.c" and compile it by
+    This program sends the output of the evaluation boards as udp packets
+    to the server of blitzortung.org. It supports all firmware version.
+    If there are any problem with this tracker program, contact me by
+    email to a blitzortung@gmx.org.
+ 
+    Name this file "tracker_Linux.c" and compile it by
     > g++ -Wall -lm -o tracker_Linux tracker_Linux.c
 
-    OpenWrt users should compile it by
-    > g++ -DOpenWrt -Wall -lm -o tracker_Linux_OpenWrt tracker_Linux.c
-
-    then try
+    and try
     > ./tracker_Linux -h
+
 */
-
-// if you have problems with nonterminating child processes, uncomment the follogin line
-#define KERNEL_2_4
-
-// if you use Firmware Version 10 or less, uncomment the following line
-// #define FIRMWARE_VER_10
 
 /******************************************************************************/
 /******************************************************************************/
@@ -42,24 +37,77 @@
 #include <signal.h>
 #include <math.h>
 
-#ifdef OpenWrt
-long double fabsl(long double x);
-#endif
+long double fabsl (long double x); // this is only necessary for the OpenWrt
+                                   // but do not disturb other systems
 
 /******************************************************************************/
 /******************************************************************************/
 /******************************************************************************/
 
-#define VERSION                 "LinuxTracker&nbsp;Ver.&nbsp;17.0.B" // version string send to server
-#define SLEEP_TIME_SEC          20                                   // time interval for sending data
-#define STRIKES_SERVER_ADDR     "rechenserver.de"                    // server name / ip address
-#define STRIKE_SERVER_PORT      8308                                 // server port
-#define STRING_BUFFER_SIZE      512                                  // maximal buffer size for strings
-#define THRESHOLD               25                                   // threshold 
-#define STRIKE_BUFFER_SIZE      10240                                // Buffer size for strikes
-#define RING_BUFFER_SIZE        60                                   // ring buffer size for averaged computaion of lat, lon, alt
-#define PRECISION               0.000001000                          // time presision to reach befor sending data
+#define VERSION                 "LT&nbsp;Ver.&nbsp;18" // version string send to server
+#define SERVER_ADDR             "rechenserver.de"      // server address
+#define SERVER_PORT             8308                   // server port
+#define STRING_BUFFER_SIZE      2048                   // maximal buffer size for the strings we use
+#define RING_BUFFER_SIZE        20                     // ring buffer size for averaged computation of counter difference
+#define SMOOTH_FACTOR           3600                   //
+#define POS_PRECISION           0.001000l              // position precision in degree to reach before sending data
+#define TIME_PRECISION          0.000001l              // time precision to reach before sending data
 
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
+
+// if verbose flag is true, the program outputs helpful information on standard output
+bool verbose_flag;
+ 
+// if logfile flag is true, the program outputs helpful information in a logfile
+bool logfile_flag= false;
+FILE *log_fd;
+
+// all these global last variables store the information of the last BLSEC sentence
+long long last_counter= -1;
+int last_year, last_mon, last_day, last_hour, last_min, last_sec, last_last_sec, last_sat;
+int last_channels;
+int last_values;
+int last_bits;
+int last_nsec_lag;
+long double last_lat, last_lon, last_alt;
+long long last_nsec;
+char last_status= '-', last_last_status;
+bool last_pos_ok= false, last_time_ok= false;
+bool last_com_ok= false, last_last_com_ok= false;
+bool last_last_time_ok= false, last_last_pos_ok= false;
+char last_data[STRING_BUFFER_SIZE];
+char last_Firmware_Version[STRING_BUFFER_SIZE];
+
+long long dif_sum= 1;
+long double lat_sum;
+long double lon_sum;
+long double alt_sum;
+long double dif_average;
+long double lat_average;
+long double lon_average;
+long double alt_average;
+long double lat_average_x;
+long double lon_average_x;
+long double alt_average_x;
+long double dif_precision;
+long double lat_precision;
+long double lon_precision;
+long double alt_precision;
+long double time_precision;
+int ring_buffer_index= 0;
+
+// the ring buffer is used to compute the averred position and time difference between two BLSEC sentences
+struct ring_buffer_type {
+  long long dif;
+  long double lat;
+  long double lon;
+  long double alt; } ring_buffer[RING_BUFFER_SIZE];
+
+/******************************************************************************/
+/***** initialization string for the gps devices ******************************/
+/******************************************************************************/
 
 // initialization for San Jose Navigation moduls, 4800 baud
 char init_gps_sjn[]="\
@@ -156,59 +204,6 @@ $PSRF103,08,00,00,01*00\n\
 $PSRF100,1,38400,8,1,0*00\n";
 
 /******************************************************************************/
-/******************************************************************************/
-/******************************************************************************/
-
-extern int errno;
-bool verbose_flag;
-long long sleep_time;
-
-struct strike_type {
-  int year;
-  int mon;
-  int day;
-  int hour;
-  int min;
-  int sec;
-  long long nsec;
-  long double lat;
-  long double lon;
-  long double alt;
-  int A;
-  int B;
-  char status; };
-
-struct strike_type strikes [STRIKE_BUFFER_SIZE];
-
-int cnt1= 0;
-int cnt2= 0;
-int cnt3= 0;
-
-char *device;
-char *username;
-char *password;
-
-int last_year, last_mon, last_day, last_hour, last_min, last_sec;
-long double last_lat, last_lon, last_alt;
-long long last_time;
-long long last_time_send= 0ll;
-char last_status;
-
-long long counter_ring_buffer [RING_BUFFER_SIZE];
-struct position_type {
-  long double lat;
-  long double lon;
-  long double alt; } position_ring_buffer [RING_BUFFER_SIZE];
-int ring_buffer_cnt= 0;
-
-long long counter_last;
-long long counter_sum= 1;
-long double counter_average;
-long double counter_precision;
-
-pid_t cld_pid= 0;
-
-/******************************************************************************/
 /***** initialization *********************************************************/
 /******************************************************************************/
 
@@ -217,7 +212,7 @@ char int_to_hex (int b)
 {
   b&= 0x0F;
   if (b > 9) {
-    return(b+'A'-10); }
+    return (b+'A'-10); }
   else {
     return (b+'0'); }
 }
@@ -240,35 +235,73 @@ void fill_checksum (char *buf)
       c^=buf[i]; } }
 }
 
+// set baudrate
+void set_baudrate (int f, int baudrate)
+{
+  struct termios tio;
+  tio.c_iflag= IGNBRK | IGNPAR ;
+  tio.c_oflag= OPOST | ONLCR ;
+  if (baudrate == 4800) {
+    tio.c_cflag= B4800 | CS8 | CLOCAL | CREAD ; }
+  else if (baudrate == 9600) {
+    tio.c_cflag= B9600 | CS8 | CLOCAL | CREAD ; }
+  else if (baudrate == 19200) {
+    tio.c_cflag= B19200 | CS8 | CLOCAL | CREAD ; }
+  else if (baudrate == 38400) {
+    tio.c_cflag= B38400 | CS8 | CLOCAL | CREAD ; }
+  else {
+    printf ("Do not know how to initialize the tty with %d baud!\n", baudrate);
+    return; }
+  tio.c_lflag= 0;
+  tio.c_cc[VTIME]= 0;
+  tio.c_cc[VMIN]= 1;
+  tcsetattr (f, TCSANOW, &tio);
+}
+
 // initialize the GPS modul
-void init_gps (int f, char *gps_device)
+void init_gps (const char *serial_device, char *gps_type, int baudrate)
 {
   char init_string [STRING_BUFFER_SIZE];
 
-  if (strcmp (gps_device, "sjn") == 0) {
+  if ((strcmp (gps_type, "sjn") == 0) && (baudrate == 4800)) {
     strcpy (init_string, init_gps_sjn); }
-  else if (strcmp (gps_device, "garmin_4800") == 0) {
+
+  else if ((strcmp (gps_type, "garmin") == 0) && (baudrate == 4800)) {
     strcpy (init_string, init_gps_garmin_4800); }
-  else if (strcmp (gps_device, "garmin_9600") == 0) {
+  else if ((strcmp (gps_type, "garmin") == 0) && (baudrate == 9600)) {
     strcpy (init_string, init_gps_garmin_9600); }
-  else if (strcmp (gps_device, "garmin_19200") == 0) {
+  else if ((strcmp (gps_type, "garmin") == 0) && (baudrate == 19200)) {
     strcpy (init_string, init_gps_garmin_19200); }
-  else if (strcmp (gps_device, "sirf_4800") == 0) {
+
+  else if ((strcmp (gps_type, "sirf") == 0) && (baudrate == 4800)) {
     strcpy (init_string, init_gps_sirf_4800); }
-  else if (strcmp (gps_device, "sirf_9600") == 0) {
+  else if ((strcmp (gps_type, "sirf") == 0) && (baudrate == 9600)) {
     strcpy (init_string, init_gps_sirf_9600); }
-  else if (strcmp (gps_device, "sirf_19200") == 0) {
+  else if ((strcmp (gps_type, "sirf") == 0) && (baudrate == 19200)) {
     strcpy (init_string, init_gps_sirf_19200); }
-  else if (strcmp (gps_device, "sirf_38400") == 0) {
+  else if ((strcmp (gps_type, "sirf") == 0) && (baudrate == 38400)) {
     strcpy (init_string, init_gps_sirf_38400); }
-  else if (gps_device[0] != 0) {
-    printf ("Unknown gps ititialization string!\n");
+  else {
+    if (strcmp (gps_type, "-") != 0) {
+      printf ("Do not know how to initialize GPS device %s with %d baud!\n", gps_type, baudrate); }
     return; }
     
   fill_checksum (init_string);
   if (verbose_flag) {
-    printf ("%s",init_string); }
-  write (f, init_string, strlen(init_string));
+    printf ("%s",init_string);
+    fflush (stdout); }
+
+  int br= 4800;
+  for (int b=0; b<4; b++) {
+    int f= open (serial_device, O_RDWR | O_NOCTTY );
+    if (f == -1) {
+      perror ("open()");
+      exit (-1); }
+    set_baudrate (f, br);
+    br+= br;
+    write (f, "55555\n55555\n55555\n", 18); // this is only for a synchronization
+    write (f, init_string, strlen(init_string));
+    close (f); }
 }
 
 /******************************************************************************/
@@ -288,249 +321,278 @@ long long utc_ctime_to_ensec (int year, int mon, int day, int hour, int min, lon
   t.tm_min= min;
   t.tm_sec= (int)sec;
   time_t esec= timegm(&t);
-  return((long long)esec*1000000000ll+nsec);
+  return ((long long)esec*1000000000ll+nsec);
 }
 
 // convert epoche nanoseconds to utc calender time
 void ensec_to_utc_ctime (long long ensec, int *year, int *mon, int *day, int *hour, int *min, long double *sec_nsec)
 {
   time_t esec= ensec/1000000000ll;
-  struct tm *t = gmtime(&esec);
+  struct tm *t = gmtime (&esec);
   *year= t->tm_year+1900;
   *mon= t->tm_mon+1;
   *day= t->tm_mday;
   *hour= t->tm_hour;
   *min= t->tm_min;
-  *sec_nsec= t->tm_sec+(ensec%1000000000ll)/1000000000.0;
+  *sec_nsec= t->tm_sec+(ensec%1000000000ll)/1000000000.0l;
 }
 
 // return epoche nanoseconds
 long long ensec_time ()
 {
   struct timeval t;
-  gettimeofday(&t,(struct timezone *)0);
-  return((long long)(t.tv_sec)*1000000000ll+(long long)t.tv_usec*1000ll);
+  gettimeofday (&t,(struct timezone *)0);
+  return ((long long)(t.tv_sec)*1000000000ll+(long long)t.tv_usec*1000ll);
 }
 
 /******************************************************************************/
-/***** open connection ********************************************************/
+/***** send_strike ************************************************************/
 /******************************************************************************/
 
-int open_connection ()
+void send_strike (const char *server, int port, const char *username, const char *password)
 {
-  struct hostent *hostinfo;
-  int sockfd;
+  int sock_id= socket (AF_INET, SOCK_DGRAM, 0);
+  if (sock_id == -1) {
+    fprintf (log_fd, "error: socket ()\n");
+    fflush (log_fd);
+    return; }
 
-  if (verbose_flag) {
-    printf ("Open connection\n"); }
-
-  sockfd= socket (AF_INET, SOCK_STREAM, 0);
-  if (sockfd == -1) {
-    exit (0); }
-
-  sockaddr_in serv_addr;
+  struct sockaddr_in serv_addr;
   serv_addr.sin_family= AF_INET;
-  serv_addr.sin_port= htons(STRIKE_SERVER_PORT);
-  serv_addr.sin_addr.s_addr= inet_addr (STRIKES_SERVER_ADDR);
+  serv_addr.sin_port= htons (port);
+  serv_addr.sin_addr.s_addr= inet_addr (server);
+
   if (serv_addr.sin_addr.s_addr == INADDR_NONE) {
     /* host not given by IP but by name */
-    hostinfo= gethostbyname (STRIKES_SERVER_ADDR);
-    if (hostinfo == NULL) {
-      close (sockfd);
-      exit (0); }
-    memcpy((char*) &serv_addr.sin_addr.s_addr, hostinfo->h_addr, hostinfo->h_length); }
+    struct hostent *host_info= gethostbyname (server);
+    if (host_info == NULL) {
+      fprintf (log_fd, "error: gethostbyname ()");
+      fflush (log_fd); }
+    memcpy((char*) &serv_addr.sin_addr.s_addr, host_info->h_addr, host_info->h_length); }
 
-  if (connect(sockfd, (sockaddr *) &serv_addr, sizeof(sockaddr)) == -1) {
-    exit (0); }
-
-  return sockfd;
-}
-
-/******************************************************************************/
-/***** send data **************************************************************/
-/******************************************************************************/
-
-void send_data ()
-{
-  int sockfd=  open_connection ();
   char buf [STRING_BUFFER_SIZE];
+  sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02d.%09lld %.6Lf %.6Lf %.0Lf %s %s %c %d %d %d %d %s %s\n",
+    last_year, last_mon, last_day, last_hour, last_min, last_sec, last_nsec, lat_average_x, lon_average_x, alt_average_x, username, password, last_status, last_channels, last_values, last_bits, last_nsec_lag, last_data, VERSION);
 
-  if (verbose_flag) {
-    printf ("Start sending\n"); }
+  if (sendto (sock_id, buf, strlen (buf), 0, (sockaddr *) &serv_addr, sizeof (sockaddr)) == -1) {
+    fprintf (log_fd, "error: sendto ()");
+    fflush (log_fd); }
+  if (verbose_flag) { 
+    printf ("%s", buf);
+    fflush (stdout); }
 
-  while (cnt3 != cnt2) {
-    sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02d.%09lld %.6Lf %.6Lf %.0Lf %s %s",
-      strikes[cnt3].year, strikes[cnt3].mon, strikes[cnt3].day,
-      strikes[cnt3].hour, strikes[cnt3].min, strikes[cnt3].sec, strikes[cnt3].nsec,
-      strikes[cnt3].lat, strikes[cnt3].lon, strikes[cnt3].alt, username, password);
-    sprintf (buf, "%s %.6Lf %.6Lf", buf, (long double)strikes[cnt3].A/128.0, (long double)strikes[cnt3].B/128.0);
-    sprintf (buf, "%s %c %s\n", buf, strikes[cnt3].status, VERSION);
-    if (send (sockfd, buf, strlen(buf), 0) == -1) {
-      exit (0); }
-    if (verbose_flag) {
-      printf ("%s",buf); }
-    cnt3++;
-    cnt3%= STRIKE_BUFFER_SIZE; }
-
-  send (sockfd, "\n", 2, 0);
-  close (sockfd);
-
-  exit (1);
+  close (sock_id);
 }
 
 /******************************************************************************/
 /***** evaluate ***************************************************************/
 /******************************************************************************/
 
-void evaluate (char * buf, int f)
+void log_precision ()
 {
-  int year, mon, day, hour, min, sec;
-  int lat_deg, lon_deg, sat= 0;
-  long double lat_min, lon_min, alt= 0.0;
-  char ns, we, status;
-  long long counter, difference;
-  int A[64], B[64], best_A, best_B;
-  int signal_found= 0;
+  int year, mon, day, min, hour;
+  long double sec_nsec;
+  char buf [STRING_BUFFER_SIZE];
 
-  if ((sscanf (buf, "$BLSEC,%llx,%c,%2d%2d%2d,%2d%2d%2d,%2d%Lf,%c,%3d%Lf,%c,%Lf,M,%d*",
+  ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
+  sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d,", year, mon, day, hour, min, sec_nsec, (int)getpid());
+
+  if ((!(last_last_com_ok))&&(last_com_ok)) {
+    fprintf (log_fd, "%s GPS data sentences ok\n", buf);
+    fflush (log_fd); }
+  if ((last_last_com_ok)&&(!(last_com_ok))) {
+    fprintf (log_fd, "%s GPS data sentences lost\n", buf);
+    fflush (log_fd); }
+
+  if (last_status != last_last_status) {
+    fprintf (log_fd, "%s GPS status changed to '%c'\n", buf, last_status);
+    fflush (log_fd); }
+
+  if ((!(last_last_time_ok))&&(last_time_ok)) {
+    fprintf (log_fd, "%s 1PPS signal ok, %+.0Lf nsec\n", buf, time_precision*1000000000.0l);
+    fflush (log_fd); }
+  if ((last_last_time_ok)&&(!(last_time_ok))) {
+    fprintf (log_fd, "%s 1PPS signal inaccurate, %+.0LF nsec\n", buf, time_precision*1000000000.0l);
+    fflush (log_fd); }
+
+  if ((!(last_last_pos_ok))&&(last_pos_ok)) {
+    fprintf (log_fd, "%s Position stable, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", buf, lat_average, lon_average, alt_average);
+    fflush (log_fd); }
+  if ((last_last_pos_ok)&&(!(last_pos_ok))) {
+    fprintf (log_fd, "%s Position lost, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", buf, last_lat, last_lon, last_alt);
+    fflush (log_fd); }
+}
+
+void evaluate (const char *line, const char *server, int port, const char *username, const char *password)
+{
+  int year, mon, day, min, hour, sec= 0, lat_deg, lon_deg, sat= 0, A, B;
+  long double lat, lat_min, lon, lon_min, alt= 0.0l, sec_nsec;
+  char ns, we, status;
+  long long counter, dif;
+  bool BLSIG_found= false;
+
+  // BLSEC sentences
+  if ((sscanf (line, "$BLSEC,%llx,%c,%2d%2d%2d,%2d%2d%2d,%2d%Lf,%c,%3d%Lf,%c,%Lf,M,%d*",
       &counter, &status, &hour, &min, &sec, &day, &mon, &year, &lat_deg, &lat_min, &ns, &lon_deg, &lon_min, &we, &alt, &sat) == 16) ||
-      (sscanf (buf, "$BLSEC,%2d%2d%2d,%2d%2d%2d,%c,%2d%Lf,%c,%3d%Lf,%c,%llx*",
+      (sscanf (line, "$BLSEC,%2d%2d%2d,%2d%2d%2d,%c,%2d%Lf,%c,%3d%Lf,%c,%llx*",
       &hour, &min, &sec, &day, &mon, &year, &status, &lat_deg, &lat_min, &ns, &lon_deg, &lon_min, &we, &counter) == 14)) {
 
-    last_lat= lat_deg+lat_min/60.0;
+    lat= lat_deg+lat_min/60.0;
     if (ns == 'S') {
-      last_lat= -last_lat; }
-    position_ring_buffer [ring_buffer_cnt].lat = last_lat;
+      lat= -lat; }
 
-    last_lon= lon_deg+lon_min/60.0;
+    lon= lon_deg+lon_min/60.0;
     if (ns == 'W') {
-      last_lon= -last_lon; }
-    position_ring_buffer [ring_buffer_cnt].lon = last_lon;
+      lon= -lon; }
 
-    last_alt= alt;
-    position_ring_buffer [ring_buffer_cnt].alt = last_alt;
+    if (last_counter == -1) {
+      last_lat= lat;
+      last_lon= lon;
+      last_alt= alt;
+      last_counter= counter; }
 
-    if (counter >  counter_last) {
-      difference= counter-counter_last; }
     else {
-      difference= (counter+0x1000000ll)-counter_last; }
-    counter_last= counter;
-    counter_ring_buffer [ring_buffer_cnt]= difference;
+      last_year= year+2000;
+      last_mon= mon;
+      last_day= day;
+      last_min= min;
+      last_hour= hour;
+      last_last_com_ok= last_com_ok;
+      last_com_ok= (sec == (last_sec+1)%60);
+      last_sec= sec;
+      last_last_status= last_status;
+      last_status= status;
+      last_sat= sat;
+      last_lat= lat;
+      last_lon= lon;
+      last_alt= alt;
+      if (counter >  last_counter) {
+        dif= counter-last_counter; }
+      else {
+        dif= (counter+0x1000000ll)-last_counter; }
+      last_counter= counter;
 
-    ring_buffer_cnt= (ring_buffer_cnt+1)%RING_BUFFER_SIZE;
+      // fill the ring buffer
+      ring_buffer [ring_buffer_index].lat= lat;
+      ring_buffer [ring_buffer_index].lon= lon;
+      ring_buffer [ring_buffer_index].alt= alt;
+      ring_buffer [ring_buffer_index].dif= dif;
 
-    counter_sum= 0;
-    last_lat= 0.0;
-    last_lon= 0.0;
-    last_alt= 0.0;
-    for (int i=0; i<RING_BUFFER_SIZE; i++) {
-      counter_sum+= counter_ring_buffer [i];
-      last_lat+= position_ring_buffer [i].lat;
-      last_lon+= position_ring_buffer [i].lon;
-      last_alt+= position_ring_buffer [i].alt; }
-    counter_average= (long double)counter_sum/(long double)RING_BUFFER_SIZE;
-    last_lat/= (long double)RING_BUFFER_SIZE;
-    last_lon/= (long double)RING_BUFFER_SIZE;
-    last_alt/= (long double)RING_BUFFER_SIZE;
-    counter_precision= (counter_average-(long double)difference)/counter_average;
+      ring_buffer_index= (ring_buffer_index+1)%RING_BUFFER_SIZE;
 
-    if (verbose_flag) {
-      printf ("counter: %7lld, accuracy of 1PPS signal %+12.9Lf sec\n", difference, counter_precision);
-      printf ("averaged position: lat: %.6Lf, lon: %.6Lf, alt: %.1Lf, sat: %d\n", last_lat, last_lon, last_alt, sat); }
+      // compute average dif, lat lon, alt for buffer 1
+      dif_sum= 0;
+      lat_sum= 0.0;
+      lon_sum= 0.0;
+      alt_sum= 0.0;
+      for (int i=0; i<RING_BUFFER_SIZE; i++) {
+        dif_sum+= ring_buffer [i].dif;
+        lat_sum+= ring_buffer [i].lat;
+        lon_sum+= ring_buffer [i].lon;
+        alt_sum+= ring_buffer [i].alt; }
+      dif_average= (long double)dif_sum/RING_BUFFER_SIZE;
+      lat_average= lat_sum/RING_BUFFER_SIZE;
+      lon_average= lon_sum/RING_BUFFER_SIZE;
+      alt_average= alt_sum/RING_BUFFER_SIZE;
 
-    if (fabsl(counter_precision) <= PRECISION) {
-      cnt2= cnt1; }
+      dif_precision= (dif_average-dif);
+      lat_precision= (lat_average-lat);
+      lon_precision= (lon_average-lon);
+      alt_precision= (alt_average-alt);
+      time_precision= (dif_average-dif)/dif_average;
+
+      last_last_time_ok= last_time_ok;
+      last_time_ok= (fabsl (time_precision) < TIME_PRECISION);
+
+      last_last_pos_ok= last_pos_ok;
+      last_pos_ok= (fabsl (lat_precision) + fabsl (lon_precision) < POS_PRECISION);
+      if ((!(last_last_pos_ok))&&(last_pos_ok)) {
+        lat_average_x= lat_average;
+        lon_average_x= lon_average;
+        alt_average_x= alt_average; }
+      else {
+        lat_average_x= (lat_average_x*(SMOOTH_FACTOR-1)+lat_average)/SMOOTH_FACTOR;
+        lon_average_x= (lon_average_x*(SMOOTH_FACTOR-1)+lon_average)/SMOOTH_FACTOR;
+        alt_average_x= (alt_average_x*(SMOOTH_FACTOR-1)+alt_average)/SMOOTH_FACTOR; }
+
+      if (verbose_flag) {
+        printf ("lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf, time precision: %+.0Lf nsec\n", lat_average_x, lon_average_x, alt_average_x, time_precision*1000000000.0l);
+        fflush (stdout); }
+
+      if (logfile_flag) {
+        log_precision(); } } }
+
+  // BLSIG sentence type 1
+  else if ((sscanf (line, "$BLSIG,%6llx,%2x,%2x%c", &counter, &A, &B, &status) == 4)&&(status == '*')) {
+    sprintf (last_data, "%02x%02x",A,B);
+    last_channels= 2;
+    last_values= 1;
+    last_bits= 8;
+    last_nsec_lag= 0;
+    BLSIG_found= true; }
+
+  // BLSIG sentence type 2
+  else if ((sscanf (line, "$BLSIG,%6llx,%3x,%3x%c", &counter, &A, &B, &status) == 4)&&(status == '*')) {
+    sprintf (last_data, "%03x%03x",A,B);
+    last_channels= 2;
+    last_values= 1;
+    last_bits= 12;
+    last_nsec_lag= 0;
+    BLSIG_found= true; }
+
+  // BLSIG sentence type 3
+  else if ((sscanf (line, "$BLSEQ,%6llx,%256s%c", &counter, last_data, &status) == 3)&&(status == '*')) {
+    last_channels= 2;
+    last_values= 64;
+    last_bits= 8;
+    last_nsec_lag= 3125;
+    BLSIG_found= true; }
+
+  // BLSTR sentence type 1
+  else if ((sscanf (line, "$BLSEQ,%6llx,%256s%c", &counter, last_data, &status) == 3)&&(status == '*')) {
+    last_channels= 1;
+    last_values= 128;
+    last_bits= 8;
+    last_nsec_lag= 2930;
+    BLSIG_found= true; }
+
+  // BLSTR sentence type 2
+  else if ((sscanf (line, "$BLSTR,%6llx,%512s%c", &counter, last_data, &status) == 3)&&(status == '*')) {
+    last_channels= 1;
+    last_values= 256;
+    last_bits= 8;
+    last_nsec_lag= 2930;
+    BLSIG_found= true; }
+
+  // Firmware sentence
+  else if (sscanf (line, "Firmware %s", last_Firmware_Version) == 1) {
+    if (logfile_flag) {
+      ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
+      fprintf (log_fd, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d, %s", year, mon, day, hour, min, sec_nsec, (int)getpid(), line);
+      fflush (log_fd); } }
+
+  // unknown sentence
+  else if (logfile_flag) {
+    if (logfile_flag) {
+      ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
+      fprintf (log_fd, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d, unknown sentence: %s", year, mon, day, hour, min, sec_nsec, (int)getpid(), line);
+      fflush (log_fd); } }
+
+  if (BLSIG_found) { 
+    if (counter >  last_counter) {
+      dif= counter-last_counter; }
     else {
-      cnt1= cnt2; }
+      dif= (counter+0x1000000ll)-last_counter; }
 
-    last_year= year+2000;
-    last_mon= mon;
-    last_day= day;
-    last_hour= hour;
-    last_min= min;
-    last_sec= sec;
-    last_time= utc_ctime_to_ensec(last_year, last_mon, last_day, last_hour, last_min, (long double)last_sec);
-    last_status= status;
+    last_nsec= (long long)(dif*RING_BUFFER_SIZE*1000000000ll)/dif_sum;
 
-    if ((last_time > last_time_send + sleep_time) && (cnt2 != cnt3)) {
-      if (cld_pid > 0) {
-        kill (cld_pid, SIGKILL); }
-#ifdef KERNEL_2_4
-      signal(SIGCHLD, SIG_IGN);  // Added to kill children by ignoring SIGCHLD
-#endif
-      cld_pid= fork ();
-      if (cld_pid == 0) {
-        send_data (); }
-      cnt3= cnt2;
-      last_time_send= last_time; } }
+    if (logfile_flag) {
+      log_precision(); }
 
-  else if (sscanf (buf, "$BLSIG,%6llx,%x,%x*", &counter, &A[0], &B[0]) == 3) {
-#ifdef FIRMWARE_VER_10
-    A[0]/=2;
-    B[0]/=2;
-#endif
-    for (int i= 1; i<64; i++) {
-      A[i]= 128;
-      B[i]= 128; }
-    signal_found= 1; }
-
-  else if (sscanf (buf, "$BLSEQ,%6llx,", &counter) == 1) {
-    int i= 0;
-    buf+=14;
-    while ((i<64) && (sscanf (buf, "%2x%2x", &A[i], &B[i]) == 2)) {
-      i++;
-      buf+=4; }
-    signal_found= 2; }
-
-  if (signal_found > 0) { 
-    if (counter >  counter_last) {
-      difference= counter-counter_last; }
-    else {
-      difference= (counter+0x1000000ll)-counter_last; }
-
-    long long last_nsec= (difference*RING_BUFFER_SIZE*1000000000ll)/counter_sum;
-
-    int max_amplitude= 0;
-    int max_index= 0;
-    for (int i=0; i<64; i++) {
-      A[i]-= 128;
-      B[i]-= 128;
-      int amplitude= A[i]*A[i]+B[i]*B[i];
-      if (amplitude > max_amplitude) {
-        max_amplitude= amplitude;
-        best_A= A[i];
-        best_B= B[i];
-        max_index= i; } }
-    if ((abs(A[max_index]) < THRESHOLD)&&
-        (abs(B[max_index]) < THRESHOLD)) {
-      best_A= THRESHOLD;
-      best_B= THRESHOLD/2;
-      max_index= -1; }
-
-    last_nsec+= (max_index)*3125ll; // time correction
-
-    if (verbose_flag) {
-      printf ("%7lld", difference);
-      for (int i=0; i<64; i++) {
-        printf (",%4d,%4d", A[i], B[i]); }
-      printf (", max %d: %d %d\n", max_index, best_A, best_B); }
-
-    if ((last_nsec >= 0) && (last_nsec < 1000000000ll)) {
-      strikes [cnt1].year= last_year;
-      strikes [cnt1].mon= last_mon;
-      strikes [cnt1].day= last_day;
-      strikes [cnt1].hour= last_hour;
-      strikes [cnt1].min= last_min;
-      strikes [cnt1].sec= last_sec;
-      strikes [cnt1].nsec= last_nsec;
-      strikes [cnt1].lat= last_lat;
-      strikes [cnt1].lon= last_lon;
-      strikes [cnt1].alt= last_alt;
-      strikes [cnt1].status= last_status;
-      strikes [cnt1].A= best_A;
-      strikes [cnt1].B= best_B;
-      cnt1++;
-      cnt1%= STRIKE_BUFFER_SIZE; } }
+    // send only if precision is ok
+    if ((last_time_ok)&&(last_pos_ok)&&(last_com_ok)) {
+      send_strike ("lightning.idokep.hu", 10005, username, "********");
+      send_strike (server, port, username, password); } }
 }
 
 /******************************************************************************/
@@ -542,116 +604,79 @@ int main (int argc, char **argv)
   char program_name [STRING_BUFFER_SIZE];
   program_name[0]= 0;
   if (argc >0) {
-    strcpy(program_name,argv[0]);
+    strcpy (program_name,argv[0]);
     argc--;
     argv++; }
 
-  sleep_time= SLEEP_TIME_SEC*1000000000ll;
-  bool tty_device_flag= true;
+  char *logfile= 0;
+  char *gps_type;
+  int baudrate;
+  char *serial_device;
+  char *username;
+  char *password;
   verbose_flag= false;
-  char gps_device[STRING_BUFFER_SIZE];
-  gps_device[0] = 0;
-  int baud_rate= 0;
-  int gps_init_day= 0;
   bool help_flag= false;
-
 
   bool flag_found;
   do {
     flag_found= false;
-    if ((argc > 1) && (strcmp(argv[0],"-t") == 0)) {
+    if ((argc > 0) && (strcmp (argv[0],"-l") == 0)) {
       flag_found= true;
-      sleep_time= atoll(argv[1])*1000000000ll;
-      argc-= 2;
-      argv+= 2; }
-    if ((argc > 1) && (strcmp(argv[0],"-i") == 0)) {
-      flag_found= true;
-      strcpy (gps_device, argv[1]); 
-      argc-= 2;
-      argv+= 2; }
-    if ((argc > 1) && (strcmp(argv[0],"-b") == 0)) {
-      flag_found= true;
-      baud_rate= atoi(argv[1]); 
-      argc-= 2;
-      argv+= 2; }
-    if ((argc > 0) && (strcmp(argv[0],"-n") == 0)) {
-      flag_found= true;
-      tty_device_flag= false;
-      argc-=1;
-      argv+=1; }
-    if ((argc > 0) && (strcmp(argv[0],"-v") == 0)) {
+      logfile_flag= true;
+      logfile= argv[1];
+      argc-=2;
+      argv+=2; }
+    if ((argc > 0) && (strcmp (argv[0],"-v") == 0)) {
       flag_found= true;
       verbose_flag= true;
       argc-=1;
       argv+=1; }
-    if ((argc > 0) && (strcmp(argv[0],"-h") == 0)) {
+    if ((argc > 0) && (strcmp (argv[0],"-h") == 0)) {
       flag_found= true;
       help_flag= true;
       argc--;
       argv++; } }
   while (flag_found);
 
-  if ((help_flag)||(argc != 3)) {
-    printf ("%s: [-t sleep_time] [-n] [-v] [-h] device username password\n",program_name);
-    printf ("device     : serial device (example: /dev/ttyS0)\n");
-    printf ("username   : username (example: PeterPim) \n");
-    printf ("password   : password (example: xxxxxxxx)\n");
-    printf ("-t sec     : sleep time (default = %d sec)\n",SLEEP_TIME_SEC);
-    printf ("-i gps     : initialization with sjn,\n");
-    printf ("             garmin_4800, garmin_9600, garmin_19200,\n");
-    printf ("             sirf_4800, sirf_9600, sirf_19200, or sirf_38400\n");
-    printf ("-b 0/1/2/3 : baud rate (0=4800, 1=9600, 2=19200, 3=38400)\n");
-    printf ("-n         : device is not a tty\n");
-    printf ("-v         : verbose mode\n");
-    printf ("-h         : print this help text\n");
+  if ((help_flag)||(argc != 5)) {
+    printf ("%s: [-v] [-h] [-l logfile] gps_type baudrate serial_device username password\n",program_name);
+    printf ("gps_type      : gps type (sjn, garmin, or sirf ('-' for no initialization)\n");
+    printf ("baudrate      : baudrate (4800, 9600, 19200, or 38400)\n");
+    printf ("serial_device : serial device (example: /dev/ttyS0)\n");
+    printf ("username      : username (example: PeterPim) \n");
+    printf ("password      : password (example: xxxxxxxx)\n");
+    printf ("-l logfile    : log tracker information\n");
+    printf ("-v            : verbose mode\n");
+    printf ("-h            : print this help text\n");
     exit (-1); }
 
-  device= argv[0];
-  username= argv[1];
-  password= argv[2];
+  gps_type= argv[0];
+  baudrate= atoi (argv[1]);
+  serial_device= argv[2];
+  username= argv[3];
+  password= argv[4];
 
-#ifndef KERNEL_2_4
-  struct sigaction act;
-  act.sa_handler = NULL;
-  act.sa_flags = SA_NOCLDSTOP;
-  sigaction(SIGCHLD,&act,NULL); 
-#endif
+  init_gps (serial_device, gps_type, baudrate);
 
-  int f= open(device, O_RDWR | O_NOCTTY );
+  int f= open (serial_device, O_RDWR | O_NOCTTY );
   if (f < 0) {
-    printf("Can't open %s\n",device);
-    exit(-1); }
+    perror ("open()");
+    exit (-1); }
+  set_baudrate (f, baudrate);
 
-  if (tty_device_flag) {
-    struct termios tio;
-    tio.c_iflag= IGNBRK | IGNPAR ;
-    tio.c_oflag= OPOST | ONLCR ;
-    if (baud_rate == 0) {
-      tio.c_cflag= B4800 | CS8 | CLOCAL | CREAD ; }
-    else if (baud_rate == 1) {
-      tio.c_cflag= B9600 | CS8 | CLOCAL | CREAD ; }
-    else if (baud_rate == 2) {
-      tio.c_cflag= B19200 | CS8 | CLOCAL | CREAD ; }
-    else if (baud_rate == 3) {
-      tio.c_cflag= B38400 | CS8 | CLOCAL | CREAD ; }
-    tio.c_lflag= 0;
-    tio.c_cc[VTIME]= 0;
-    tio.c_cc[VMIN]= 1;
-    tcsetattr(f, TCSANOW, &tio); }
-
-  char buf[STRING_BUFFER_SIZE], c;
-  int i=0;
-
-  int year, mon, day, hour, min;
-  long double sec_nsec;
-
-  while (true) {
+  if (logfile_flag) {
+    log_fd= fopen(logfile, "w");
+    int year, mon, day, min, hour;
+    long double sec_nsec;
     ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
-    if (day != gps_init_day) {
-      init_gps (f, gps_device);
-      gps_init_day= day; }
+    fprintf (log_fd, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d, tracker started\n", year, mon, day, hour, min, sec_nsec, (int)getpid());
+    fflush (log_fd); }
 
-    if (read(f, &c, 1) == 1) {
+  char buf[STRING_BUFFER_SIZE];
+  char c;
+  int i=0;
+  while (true) {
+    if (read (f, &c, 1) == 1) {
       buf [i]= c;
       if (verbose_flag) {
         putchar (c); }
@@ -659,7 +684,7 @@ int main (int argc, char **argv)
         i++; }
       if (c == '\n') {
         buf [i]= 0;
-        evaluate (buf, f);
+        evaluate (buf, SERVER_ADDR, SERVER_PORT, username, password);
         i= 0; } } }
 }
 
