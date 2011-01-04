@@ -44,7 +44,7 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 /******************************************************************************/
 /******************************************************************************/
 
-#define VERSION                 "LT&nbsp;Ver.&nbsp;19" // version string send to server
+#define VERSION                 "LT&nbsp;Ver.&nbsp;20" // version string send to server
 #define SERVER_ADDR             "rechenserver.de"      // server address
 #define SERVER_PORT             8308                   // server port
 #define STRING_BUFFER_SIZE      2048                   // maximal buffer size for the strings we use
@@ -52,6 +52,9 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 #define SMOOTH_FACTOR           3600                   //
 #define POS_PRECISION           0.001000l              // position precision in degree to reach before sending data
 #define TIME_PRECISION          0.000001l              // time precision to reach before sending data
+
+#define MAX_STR_SEC             12                     // maximal number of strikes per second to  
+#define MAX_NONZERO_SEC         6                      // maximal number of seconds with strikes
 
 /******************************************************************************/
 /******************************************************************************/
@@ -74,9 +77,10 @@ int last_nsec_lag;
 long double last_lat, last_lon, last_alt;
 long long last_nsec;
 char last_status= '-', last_last_status;
-bool last_pos_ok= false, last_time_ok= false;
-bool last_com_ok= false, last_last_com_ok= false;
-bool last_last_time_ok= false, last_last_pos_ok= false;
+bool last_pos_ok= false, last_last_pos_ok= false;
+bool last_accuracy_ok= false, last_last_accuracy_ok= false;
+bool last_sec_ok= false, last_last_sec_ok= false;
+bool last_imode= false, last_last_imode= false;
 char last_data[STRING_BUFFER_SIZE];
 char last_Firmware_Version[STRING_BUFFER_SIZE];
 long long last_transmition_time= 0ll;
@@ -106,6 +110,10 @@ struct ring_buffer_type {
   long double lat;
   long double lon;
   long double alt; } ring_buffer[RING_BUFFER_SIZE];
+
+int str_sec= 0;
+int last_str_sec= 0;
+int nonzero_sec= 0;
 
 /******************************************************************************/
 /***** initialization string for the gps devices ******************************/
@@ -389,31 +397,38 @@ void send_strike (int sock_id, struct sockaddr *serv_addr, const char *username,
 /***** evaluate ***************************************************************/
 /******************************************************************************/
 
-void log_precision ()
+void log_status ()
 {
   char buf [STRING_BUFFER_SIZE];
 
-  if ((!(last_last_com_ok))&&(last_com_ok)) {
-    write_to_log ("GPS data sentences ok\n"); }
-  if ((last_last_com_ok)&&(!(last_com_ok))) {
-    write_to_log ("GPS data sentences lost\n"); }
+  if ((!(last_last_sec_ok))&&(last_sec_ok)) {
+    write_to_log ("GPS seconds running\n"); }
+  if ((last_last_sec_ok)&&(!(last_sec_ok))) {
+    write_to_log ("GPS seconds stoped\n"); }
 
   if (last_status != last_last_status) {
     sprintf (buf, "GPS status changed to '%c'\n", last_status);
     write_to_log (buf); }
 
   if ((!(last_last_pos_ok))&&(last_pos_ok)) {
-    sprintf (buf, "Position stable, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", lat_average, lon_average, alt_average);
+    sprintf (buf, "Position fixed, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", lat_average, lon_average, alt_average);
     write_to_log (buf); }
   if ((last_last_pos_ok)&&(!(last_pos_ok))) {
     sprintf (buf, "Position lost, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", last_lat, last_lon, last_alt);
     write_to_log (buf); }
 
-  if ((!(last_last_time_ok))&&(last_time_ok)) {
-    sprintf (buf, "1PPS signal ok, %+.0Lf nsec\n", time_precision*1000000000.0l);
+  if ((!(last_last_accuracy_ok))&&(last_accuracy_ok)) {
+    sprintf (buf, "1PPS signal accuracy ok, %+.0Lf nsec\n", time_precision*1000000000.0l);
     write_to_log (buf); }
-  if ((last_last_time_ok)&&(!(last_time_ok))) {
+  if ((last_last_accuracy_ok)&&(!(last_accuracy_ok))) {
     sprintf (buf, "1PPS signal inaccurate, %+.0LF nsec\n", time_precision*1000000000.0l);
+    write_to_log (buf); }
+
+  if ((!(last_last_imode))&&(last_imode)) {
+    sprintf (buf, "start interference mode, %d strikes per seconds, %d seconds nonzero\n", last_str_sec, nonzero_sec);
+    write_to_log (buf); }
+  if ((last_last_imode)&&(!(last_imode))) {
+    sprintf (buf, "stop interferences mode\n");
     write_to_log (buf); }
 }
 
@@ -452,8 +467,8 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
       last_day= day;
       last_min= min;
       last_hour= hour;
-      last_last_com_ok= last_com_ok;
-      last_com_ok= (sec == (last_sec+1)%60);
+      last_last_sec_ok= last_sec_ok;
+      last_sec_ok= (sec == (last_sec+1)%60);
       last_sec= sec;
       last_last_status= last_status;
       last_status= status;
@@ -496,8 +511,8 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
       alt_precision= (alt_average-alt);
       time_precision= (dif_average-dif)/dif_average;
 
-      last_last_time_ok= last_time_ok;
-      last_time_ok= (fabsl (time_precision) < TIME_PRECISION);
+      last_last_accuracy_ok= last_accuracy_ok;
+      last_accuracy_ok= (fabsl (time_precision) < TIME_PRECISION);
 
       last_last_pos_ok= last_pos_ok;
       last_pos_ok= (fabsl (lat_precision) + fabsl (lon_precision) < POS_PRECISION);
@@ -510,23 +525,34 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
         lon_average_x= (lon_average_x*(SMOOTH_FACTOR-1)+lon_average)/SMOOTH_FACTOR;
         alt_average_x= (alt_average_x*(SMOOTH_FACTOR-1)+alt_average)/SMOOTH_FACTOR; }
 
+      if (str_sec > 0) {
+        nonzero_sec++; }
+      last_last_imode= last_imode;
+      if ((str_sec >= MAX_STR_SEC)||(nonzero_sec >= MAX_NONZERO_SEC)) {
+        last_imode= true; }
+      if (str_sec == 0) {
+        nonzero_sec= 0;
+        last_imode= false; }
+      last_str_sec= str_sec;
+      str_sec= 0;
+
       if (verbose_flag) {
         printf ("lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf, time precision: %+.0Lf nsec\n", lat_average_x, lon_average_x, alt_average_x, time_precision*1000000000.0l);
         fflush (stdout); }
 
       now_time= ensec_time ();
-      if ((last_time_ok)&&(last_pos_ok)&&(last_com_ok)&&
+      if ((last_accuracy_ok)&&(last_pos_ok)&&(last_sec_ok)&&
           (now_time > last_transmition_time + 600000000000ll)) {
         last_channels= 0;
         last_values= 0;
-        last_bits= 0;
-        last_nsec_lag= 0;
+        last_bits= last_str_sec;
+        last_nsec_lag= nonzero_sec;
         strcpy (last_data, "-");
-        last_transmition_time= now_time;
-        send_strike (sock_id, serv_addr, username, password); }
+        send_strike (sock_id, serv_addr, username, password);
+        last_transmition_time= now_time; }
 
       if (logfile_flag) {
-        log_precision(); } } }
+        log_status(); } } }
 
   // BLSIG sentence type 1
   else if ((sscanf (line, "$BLSIG,%6llx,%2x,%2x%c", &counter, &A, &B, &status) == 4)&&(status == '*')) {
@@ -542,7 +568,7 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
     sprintf (last_data, "%03x%03x",A,B);
     last_channels= 2;
     last_values= 1;
-    last_bits= 10;
+    last_bits= 12;
     last_nsec_lag= 0;
     BLSIG_found= true; }
 
@@ -588,14 +614,12 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
       dif= (counter+0x1000000ll)-last_counter; }
 
     last_nsec= (long long)(dif*RING_BUFFER_SIZE*1000000000ll)/dif_sum;
-
-    if (logfile_flag) {
-      log_precision(); }
+    str_sec++;
 
     // send only if precision is ok
-    if ((last_time_ok)&&(last_pos_ok)&&(last_com_ok)) {
-      last_transmition_time= now_time;
-      send_strike (sock_id, serv_addr, username, password); } }
+    if ((last_accuracy_ok)&&(last_pos_ok)&&(last_sec_ok)&&(!(last_imode))) {
+      send_strike (sock_id, serv_addr, username, password);
+      last_transmition_time= now_time; } }
 }
 
 /******************************************************************************/
