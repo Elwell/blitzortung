@@ -1,5 +1,5 @@
 /*
-    Copyright (C) 2003-2010  Egon Wanke <blitzortung@gmx.org> 1
+    Copyright (C) 2003-2011  Egon Wanke <blitzortung@gmx.org> 1
 
     This program sends the output of the evaluation boards as udp packets
     to the server of blitzortung.org. It supports all firmware version.
@@ -44,7 +44,7 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 /******************************************************************************/
 /******************************************************************************/
 
-#define VERSION                 "LT&nbsp;Ver.&nbsp;20" // version string send to server
+#define VERSION                 "LT&nbsp;21"           // version string send to server
 #define SERVER_ADDR             "rechenserver.de"      // server address
 #define SERVER_PORT             8308                   // server port
 #define STRING_BUFFER_SIZE      2048                   // maximal buffer size for the strings we use
@@ -53,28 +53,32 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 #define POS_PRECISION           0.001000l              // position precision in degree to reach before sending data
 #define TIME_PRECISION          0.000001l              // time precision to reach before sending data
 
-#define MAX_STR_SEC             12                     // maximal number of strikes per second to  
+#define MAX_STR_SEC             12                     // maximal number of strikes per second
 #define MAX_NONZERO_SEC         6                      // maximal number of seconds with strikes
 
 /******************************************************************************/
 /******************************************************************************/
 /******************************************************************************/
 
-// if verbose flag is true, the program outputs helpful information on standard output
+// if verbose flag is true, the program outputs read data and log file entries
+// on standard output
 bool verbose_flag;
  
-// if logfile flag is true, the program outputs helpful information in a logfile
+// if logfile flag is true, the program outputs information in a logfile
 bool logfile_flag= false;
 FILE *log_fd;
 
-// all these global last variables store the information of the last BLSEC sentence
-long long last_counter= -1;
-int last_year, last_mon, last_day, last_hour, last_min, last_sec, last_last_sec, last_sat;
+// all these global last and last_last variables store the information of the
+// last BLSEC sentence
+long long last_counter= -1, last_last_counter= -1;
+int last_year, last_mon, last_day, last_hour, last_min, last_sec, last_last_sec;
+int last_sat, last_last_sat;
 int last_channels;
 int last_values;
 int last_bits;
-int last_nsec_lag;
-long double last_lat, last_lon, last_alt;
+long double last_lat, last_last_lat;
+long double last_lon, last_last_lon;
+long double last_alt, last_last_alt;
 long long last_nsec;
 char last_status= '-', last_last_status;
 bool last_pos_ok= false, last_last_pos_ok= false;
@@ -82,8 +86,9 @@ bool last_accuracy_ok= false, last_last_accuracy_ok= false;
 bool last_sec_ok= false, last_last_sec_ok= false;
 bool last_imode= false, last_last_imode= false;
 char last_data[STRING_BUFFER_SIZE];
-char last_Firmware_Version[STRING_BUFFER_SIZE];
+char last_firmware[STRING_BUFFER_SIZE];
 long long last_transmition_time= 0ll;
+bool last_checksum_error= false;
 
 long long now_time= 0ll;
 long long dif_sum= 1;
@@ -104,7 +109,8 @@ long double alt_precision;
 long double time_precision;
 int ring_buffer_index= 0;
 
-// the ring buffer is used to compute the averred position and time difference between two BLSEC sentences
+// the ring buffer is used to compute the averred position and time difference
+// between two BLSEC sentences
 struct ring_buffer_type {
   long long dif;
   long double lat;
@@ -114,17 +120,19 @@ struct ring_buffer_type {
 int str_sec= 0;
 int last_str_sec= 0;
 int nonzero_sec= 0;
+int baudrate;
+char *gps_type;
 
 /******************************************************************************/
 /***** initialization string for the gps devices ******************************/
 /******************************************************************************/
 
 // initialization for San Jose Navigation moduls, 4800 baud
-char init_gps_sjn[]="\
+char init_gps_SANAV[]="\
 $PFEC,GPint,GGA01,GLL00,GSA00,GSV00,RMC01,DTM00,VTG00,ZDA00*00\n";
 
 // initialization for Garmin moduls, 4800 baud
-char init_gps_garmin_4800[]= "\
+char init_gps_Garmin_4800[]= "\
 $PGRMO,GPGGA,1*00\n\
 $PGRMO,GPGSA,0*00\n\
 $PGRMO,GPGSV,0*00\n\
@@ -138,7 +146,7 @@ $PGRMCE*00\n\
 $PGRMC,,51.5,,,,,,,,3,,2,4,*00\n";
 
 // initialization for Garmin moduls, 9600 baud
-char init_gps_garmin_9600[]= "\
+char init_gps_Garmin_9600[]= "\
 $PGRMO,GPGGA,1*00\n\
 $PGRMO,GPGSA,0*00\n\
 $PGRMO,GPGSV,0*00\n\
@@ -152,7 +160,7 @@ $PGRMCE*00\n\
 $PGRMC,,51.5,,,,,,,,4,,2,4,*00\n";
 
 // initialization for Garmin moduls, 19200 baud
-char init_gps_garmin_19200[]= "\
+char init_gps_Garmin_19200[]= "\
 $PGRMO,GPGGA,1*00\n\
 $PGRMO,GPGSA,0*00\n\
 $PGRMO,GPGSV,0*00\n\
@@ -166,7 +174,7 @@ $PGRMCE*00\n\
 $PGRMC,,51.5,,,,,,,,5,,2,4,*00\n";
 
 // initialization for SiRF moduls, 4800 baud
-char init_gps_sirf_4800[]= "\
+char init_gps_SiRF_4800[]= "\
 $PSRF103,00,00,01,01*00\n\
 $PSRF103,01,00,00,01*00\n\
 $PSRF103,02,00,00,01*00\n\
@@ -178,7 +186,7 @@ $PSRF103,08,00,00,01*00\n\
 $PSRF100,1,4800,8,1,0*00\n";
 
 // initialization for SiRF moduls, 9600 baud
-char init_gps_sirf_9600[]= "\
+char init_gps_SiRF_9600[]= "\
 $PSRF103,00,00,01,01*00\n\
 $PSRF103,01,00,00,01*00\n\
 $PSRF103,02,00,00,01*00\n\
@@ -190,7 +198,7 @@ $PSRF103,08,00,00,01*00\n\
 $PSRF100,1,9600,8,1,0*00\n";
 
 // initialization for SiRF moduls, 19200 baud
-char init_gps_sirf_19200[]= "\
+char init_gps_SiRF_19200[]= "\
 $PSRF103,00,00,01,01*00\n\
 $PSRF103,01,00,00,01*00\n\
 $PSRF103,02,00,00,01*00\n\
@@ -202,7 +210,7 @@ $PSRF103,08,00,00,01*00\n\
 $PSRF100,1,19200,8,1,0*00\n";
 
 // initialization for SiRF moduls, 38400 baud
-char init_gps_sirf_38400[]= "\
+char init_gps_SiRF_38400[]= "\
 $PSRF103,00,00,01,01*00\n\
 $PSRF103,01,00,00,01*00\n\
 $PSRF103,02,00,00,01*00\n\
@@ -288,6 +296,15 @@ char int_to_hex (int b)
     return (b+'0'); }
 }
 
+//
+char hex_to_int (char c)
+{
+  if ((c >= '0')&&(c <= '9')) {
+    return (c-'0'); }
+  else {
+    return (c-'A'+10); }
+}
+
 // computes NMEA checksums between every $ and *
 void fill_checksum (char *buf)
 {
@@ -306,13 +323,36 @@ void fill_checksum (char *buf)
       c^=buf[i]; } }
 }
 
-// set baudrate
+int compute_checksum (const char *buf)
+{
+  unsigned int i;
+  int c= 0;
+
+  for (i=0; i < strlen (buf); i++) {
+    if (buf[i] == '$') {
+      c= 0; }
+    else if (buf[i] == '*') {
+      return (c); }
+    else {
+      c^=buf[i]; } }
+  return (c);
+}
+
+// set baudrate of open tty
 void set_baudrate (int f, int baudrate)
 {
   struct termios tio;
   tio.c_iflag= IGNBRK | IGNPAR ;
   tio.c_oflag= OPOST | ONLCR ;
-  if (baudrate == 4800) {
+  if (baudrate == 300) {
+    tio.c_cflag= B300 | CS8 | CLOCAL | CREAD ; }
+  else if (baudrate == 600) {
+    tio.c_cflag= B600 | CS8 | CLOCAL | CREAD ; }
+  else if (baudrate == 1200) {
+    tio.c_cflag= B1200 | CS8 | CLOCAL | CREAD ; }
+  else if (baudrate == 2400) {
+    tio.c_cflag= B2400 | CS8 | CLOCAL | CREAD ; }
+  else if (baudrate == 4800) {
     tio.c_cflag= B4800 | CS8 | CLOCAL | CREAD ; }
   else if (baudrate == 9600) {
     tio.c_cflag= B9600 | CS8 | CLOCAL | CREAD ; }
@@ -322,7 +362,7 @@ void set_baudrate (int f, int baudrate)
     tio.c_cflag= B38400 | CS8 | CLOCAL | CREAD ; }
   else {
     printf ("Do not know how to initialize the tty with %d baud!\n", baudrate);
-    return; }
+    exit (-1); }
   tio.c_lflag= 0;
   tio.c_cc[VTIME]= 0;
   tio.c_cc[VMIN]= 1;
@@ -333,29 +373,31 @@ void set_baudrate (int f, int baudrate)
 void init_gps (const char *serial_device, char *gps_type, int baudrate)
 {
   char init_string [STRING_BUFFER_SIZE];
+  char buf [STRING_BUFFER_SIZE];
 
-  if ((strcmp (gps_type, "sjn") == 0) && (baudrate == 4800)) {
-    strcpy (init_string, init_gps_sjn); }
+  if ((strcmp (gps_type, "SANAV") == 0) && (baudrate == 4800)) {
+    strcpy (init_string, init_gps_SANAV); }
 
-  else if ((strcmp (gps_type, "garmin") == 0) && (baudrate == 4800)) {
-    strcpy (init_string, init_gps_garmin_4800); }
-  else if ((strcmp (gps_type, "garmin") == 0) && (baudrate == 9600)) {
-    strcpy (init_string, init_gps_garmin_9600); }
-  else if ((strcmp (gps_type, "garmin") == 0) && (baudrate == 19200)) {
-    strcpy (init_string, init_gps_garmin_19200); }
+  else if ((strcmp (gps_type, "Garmin") == 0) && (baudrate == 4800)) {
+    strcpy (init_string, init_gps_Garmin_4800); }
+  else if ((strcmp (gps_type, "Garmin") == 0) && (baudrate == 9600)) {
+    strcpy (init_string, init_gps_Garmin_9600); }
+  else if ((strcmp (gps_type, "Garmin") == 0) && (baudrate == 19200)) {
+    strcpy (init_string, init_gps_Garmin_19200); }
 
-  else if ((strcmp (gps_type, "sirf") == 0) && (baudrate == 4800)) {
-    strcpy (init_string, init_gps_sirf_4800); }
-  else if ((strcmp (gps_type, "sirf") == 0) && (baudrate == 9600)) {
-    strcpy (init_string, init_gps_sirf_9600); }
-  else if ((strcmp (gps_type, "sirf") == 0) && (baudrate == 19200)) {
-    strcpy (init_string, init_gps_sirf_19200); }
-  else if ((strcmp (gps_type, "sirf") == 0) && (baudrate == 38400)) {
-    strcpy (init_string, init_gps_sirf_38400); }
-  else {
-    if (strcmp (gps_type, "-") != 0) {
-      printf ("Do not know how to initialize GPS device %s with %d baud!\n", gps_type, baudrate); }
+  else if ((strcmp (gps_type, "SiRF") == 0) && (baudrate == 4800)) {
+    strcpy (init_string, init_gps_SiRF_4800); }
+  else if ((strcmp (gps_type, "SiRF") == 0) && (baudrate == 9600)) {
+    strcpy (init_string, init_gps_SiRF_9600); }
+  else if ((strcmp (gps_type, "SiRF") == 0) && (baudrate == 19200)) {
+    strcpy (init_string, init_gps_SiRF_19200); }
+  else if ((strcmp (gps_type, "SiRF") == 0) && (baudrate == 38400)) {
+    strcpy (init_string, init_gps_SiRF_38400); }
+  else if (strcmp (gps_type, "-") == 0) {
     return; }
+  else {
+    printf ("Do not know how to initialize GPS device %s with %d baud!\n", gps_type, baudrate);
+    exit (-1); }
     
   fill_checksum (init_string);
   if (verbose_flag) {
@@ -369,8 +411,10 @@ void init_gps (const char *serial_device, char *gps_type, int baudrate)
       perror ("open()");
       exit (-1); }
     set_baudrate (f, br);
+    sprintf (buf, "initialize GPS with %s, %d baud, using %d baud\n", gps_type, baudrate, br);
+    write_to_log (buf);
     br+= br;
-    write (f, "55555\n55555\n55555\n", 18); // this is only for synchronization
+    write (f, "55555\n55555\n55555\n", 18); // only for synchronization
     write (f, init_string, strlen(init_string));
     close (f); }
 }
@@ -382,8 +426,8 @@ void init_gps (const char *serial_device, char *gps_type, int baudrate)
 void send_strike (int sock_id, struct sockaddr *serv_addr, const char *username, const char *password)
 {
   char buf [STRING_BUFFER_SIZE];
-  sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02d.%09lld %.6Lf %.6Lf %.0Lf %s %s %c %d %d %d %d %s %s\n",
-    last_year, last_mon, last_day, last_hour, last_min, last_sec, last_nsec, lat_average_x, lon_average_x, alt_average_x, username, password, last_status, last_channels, last_values, last_bits, last_nsec_lag, last_data, VERSION);
+  sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02d.%09lld %.6Lf %.6Lf %.0Lf %s %s %c %d %d %d %d %s %s %s %d %s\n",
+    last_year, last_mon, last_day, last_hour, last_min, last_sec, last_nsec, lat_average_x, lon_average_x, alt_average_x, username, password, last_status, last_sat, last_channels, last_values, last_bits, last_data, VERSION, last_firmware, baudrate, gps_type);
 
   if (sendto (sock_id, buf, strlen (buf), 0, serv_addr, sizeof (sockaddr)) == -1) {
     write_to_log ("error: sendto ()\n");
@@ -397,17 +441,23 @@ void send_strike (int sock_id, struct sockaddr *serv_addr, const char *username,
 /***** evaluate ***************************************************************/
 /******************************************************************************/
 
+// write status to log file
 void log_status ()
 {
   char buf [STRING_BUFFER_SIZE];
 
+  if (last_checksum_error) {
+    write_to_log ("Checksum error\n"); }
+
   if ((!(last_last_sec_ok))&&(last_sec_ok)) {
-    write_to_log ("GPS seconds running\n"); }
+    sprintf (buf, "GPS seconds running, %d %d\n", last_last_sec, last_sec);
+    write_to_log (buf); }
   if ((last_last_sec_ok)&&(!(last_sec_ok))) {
-    write_to_log ("GPS seconds stoped\n"); }
+    sprintf (buf, "GPS seconds stoped, %d %d\n", last_last_sec, last_sec);
+    write_to_log (buf); }
 
   if (last_status != last_last_status) {
-    sprintf (buf, "GPS status changed to '%c'\n", last_status);
+    sprintf (buf, "GPS status changed from '%c' to '%c'\n", last_last_status, last_status);
     write_to_log (buf); }
 
   if ((!(last_last_pos_ok))&&(last_pos_ok)) {
@@ -417,11 +467,15 @@ void log_status ()
     sprintf (buf, "Position lost, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", last_lat, last_lon, last_alt);
     write_to_log (buf); }
 
+//  if (last_last_sat != last_sat) {
+//    sprintf (buf, "Number of satellites changed from %d to %d\n", last_last_sat, last_sat);
+//    write_to_log (buf); }
+
   if ((!(last_last_accuracy_ok))&&(last_accuracy_ok)) {
-    sprintf (buf, "1PPS signal accuracy ok, %+.0Lf nsec\n", time_precision*1000000000.0l);
+    sprintf (buf, "1PPS signal accuracy ok, counter: %06llX %06llX, %+.0Lf nsec\n", last_last_counter, last_counter, time_precision*1000000000.0l);
     write_to_log (buf); }
   if ((last_last_accuracy_ok)&&(!(last_accuracy_ok))) {
-    sprintf (buf, "1PPS signal inaccurate, %+.0LF nsec\n", time_precision*1000000000.0l);
+    sprintf (buf, "1PPS signal inaccurate, counter: %06llX %06llX, accuracy: %+.0LF nsec\n", last_last_counter, last_counter, time_precision*1000000000.0l);
     write_to_log (buf); }
 
   if ((!(last_last_imode))&&(last_imode)) {
@@ -434,18 +488,26 @@ void log_status ()
 
 void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const char *username, const char *password)
 {
-  int year, mon, day, min, hour, sec= 0, lat_deg, lon_deg, sat= 0, A, B;
+  int year, mon, day, min, hour, sec= 0, lat_deg, lon_deg, sat= 0, A, B, n;
   long double lat, lat_min, lon, lon_min, alt= 0.0l;
   char ns, we, status;
   long long counter, dif;
   bool BLSIG_found= false;
   char buf[STRING_BUFFER_SIZE];
+  char firmware[3];
+  firmware [0]= '-';
+  firmware [1]= '-';
+  firmware [2]= '-';
+  int checksum;
 
   // BLSEC sentences
-  if ((sscanf (line, "$BLSEC,%llx,%c,%2d%2d%2d,%2d%2d%2d,%2d%Lf,%c,%3d%Lf,%c,%Lf,M,%d*",
-      &counter, &status, &hour, &min, &sec, &day, &mon, &year, &lat_deg, &lat_min, &ns, &lon_deg, &lon_min, &we, &alt, &sat) == 16) ||
-      (sscanf (line, "$BLSEC,%2d%2d%2d,%2d%2d%2d,%c,%2d%Lf,%c,%3d%Lf,%c,%llx*",
-      &hour, &min, &sec, &day, &mon, &year, &status, &lat_deg, &lat_min, &ns, &lon_deg, &lon_min, &we, &counter) == 14)) {
+  if ((((n= sscanf (line, "$BS,%llX,%c,%2d%2d%2d,%2d%2d%2d,%2d%Lf,%c,%3d%Lf,%c,%Lf,%d,%c%c%c*%X",
+      &counter, &status, &hour, &min, &sec, &day, &mon, &year, &lat_deg, &lat_min, &ns, &lon_deg, &lon_min, &we, &alt,  &sat, &firmware[0], &firmware[1], &firmware[2], &checksum)) == 20) ||
+       ((n= sscanf (line, "$BLSEC,%llX,%c,%2d%2d%2d,%2d%2d%2d,%2d%Lf,%c,%3d%Lf,%c,%Lf,M,%d*%X",
+      &counter, &status, &hour, &min, &sec, &day, &mon, &year, &lat_deg, &lat_min, &ns, &lon_deg, &lon_min, &we, &alt, &sat, &checksum)) == 17) ||
+       ((n= sscanf (line, "$BLSEC,%2d%2d%2d,%2d%2d%2d,%c,%2d%Lf,%c,%3d%Lf,%c,%llX*%X",
+      &hour, &min, &sec, &day, &mon, &year, &status, &lat_deg, &lat_min, &ns, &lon_deg, &lon_min, &we, &counter, &checksum)) == 15))&&
+      (!(last_checksum_error= (checksum != compute_checksum(line))))) {
 
     lat= lat_deg+lat_min/60.0;
     if (ns == 'S') {
@@ -469,18 +531,31 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
       last_hour= hour;
       last_last_sec_ok= last_sec_ok;
       last_sec_ok= (sec == (last_sec+1)%60);
+      last_last_sec= last_sec;
       last_sec= sec;
       last_last_status= last_status;
       last_status= status;
+      last_last_sat= last_sat;
       last_sat= sat;
+      last_last_lat= last_lat;
       last_lat= lat;
+      last_last_lon= last_lon;
       last_lon= lon;
+      last_last_alt= last_alt;
       last_alt= alt;
       if (counter >  last_counter) {
         dif= counter-last_counter; }
       else {
         dif= (counter+0x1000000ll)-last_counter; }
+      last_last_counter= last_counter;
       last_counter= counter;
+
+      // firmware
+      if (n == 20) {
+        last_firmware[0]= firmware[0];
+        last_firmware[1]= firmware[1];
+        last_firmware[2]= firmware[2];
+        last_firmware[3]= 0; }
 
       // fill the ring buffer
       ring_buffer [ring_buffer_index].lat= lat;
@@ -545,8 +620,7 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
           (now_time > last_transmition_time + 600000000000ll)) {
         last_channels= 0;
         last_values= 0;
-        last_bits= last_str_sec;
-        last_nsec_lag= nonzero_sec;
+        last_bits= nonzero_sec;
         strcpy (last_data, "-");
         send_strike (sock_id, serv_addr, username, password);
         last_transmition_time= now_time; }
@@ -560,7 +634,6 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
     last_channels= 2;
     last_values= 1;
     last_bits= 8;
-    last_nsec_lag= 0;
     BLSIG_found= true; }
 
   // BLSIG sentence type 2
@@ -569,7 +642,6 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
     last_channels= 2;
     last_values= 1;
     last_bits= 12;
-    last_nsec_lag= 0;
     BLSIG_found= true; }
 
   // BLSIG sentence type 3
@@ -577,35 +649,32 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
     last_channels= 2;
     last_values= 64;
     last_bits= 8;
-    last_nsec_lag= 3125;
     BLSIG_found= true; }
 
-  // BLSTR sentence type 1
-  else if ((sscanf (line, "$BLSTR,%6llx,%256s%c", &counter, last_data, &status) == 3)&&(status == '*')) {
+  // BD sentence type 1
+  else if ((sscanf (line, "$BD,%6llx,%256s%c", &counter, last_data, &status) == 3)&&(status == '*')) {
+    last_channels= 2;
+    last_values= 64;
+    last_bits= 8;
+    BLSIG_found= true; }
+
+  // BM sentence type 1
+  else if ((sscanf (line, "$BM,%6llx,%256s%c", &counter, last_data, &status) == 3)&&(status == '*')) {
     last_channels= 1;
     last_values= 128;
     last_bits= 8;
-    last_nsec_lag= 2930;
-    BLSIG_found= true; }
-
-  // BLSTR sentence type 2
-  else if ((sscanf (line, "$BLSTR,%6llx,%512s%c", &counter, last_data, &status) == 3)&&(status == '*')) {
-    last_channels= 1;
-    last_values= 256;
-    last_bits= 8;
-    last_nsec_lag= 2930;
     BLSIG_found= true; }
 
   // Firmware sentence
-  else if (sscanf (line, "Firmware %s", last_Firmware_Version) == 1) {
+  else if (sscanf (line, "Firmware Version: %s", firmware) == 1) {
+    strcpy(last_firmware, firmware);
     if (logfile_flag) {
       write_to_log (line); } }
 
   // unknown sentence
   else if (logfile_flag) {
-    if (logfile_flag) {
-      sprintf (buf, "unknown sentence: %s", line);
-      write_to_log (buf); } }
+    sprintf (buf, "unknown sentence: %s", line);
+    write_to_log (buf); }
 
   if (BLSIG_found) { 
     if (counter >  last_counter) {
@@ -636,9 +705,9 @@ int main (int argc, char **argv)
     argv++; }
 
   char *logfile= 0;
-  char *gps_type;
-  int baudrate;
-  char *serial_device;
+  char *serial_device_in;
+  char *serial_device_out;
+  bool serial_device_out_flag= false;
   char *username;
   char *password;
   verbose_flag= false;
@@ -651,6 +720,12 @@ int main (int argc, char **argv)
       flag_found= true;
       logfile_flag= true;
       logfile= argv[1];
+      argc-=2;
+      argv+=2; }
+    if ((argc > 0) && (strcmp (argv[0],"-e") == 0)) {
+      flag_found= true;
+      serial_device_out_flag= true;
+      serial_device_out= argv[1];
       argc-=2;
       argv+=2; }
     if ((argc > 0) && (strcmp (argv[0],"-v") == 0)) {
@@ -667,33 +742,43 @@ int main (int argc, char **argv)
 
   if ((help_flag)||(argc != 5)) {
     printf ("%s: [-v] [-h] [-l logfile] gps_type baudrate serial_device username password\n",program_name);
-    printf ("gps_type      : gps type (sjn, garmin, or sirf ('-' for no initialization)\n");
-    printf ("baudrate      : baudrate (4800, 9600, 19200, or 38400)\n");
-    printf ("serial_device : serial device (example: /dev/ttyS0)\n");
-    printf ("username      : username (example: PeterPim) \n");
-    printf ("password      : password (example: xxxxxxxx)\n");
-    printf ("-l logfile    : log tracker information\n");
-    printf ("-v            : verbose mode\n");
-    printf ("-h            : print this help text\n");
+    printf ("gps_type         : gps type (SANAV, Garmin, or SiRF ('-' for no initialization)\n");
+    printf ("baudrate         : baudrate (4800, 9600, 19200, or 38400)\n");
+    printf ("serial_device    : serial device (example: /dev/ttyS0)\n");
+    printf ("username         : username (example: PeterPim) \n");
+    printf ("password         : password (example: xxxxxxxx)\n");
+    printf ("-l logfile       : log tracker information\n");
+    printf ("-e serial_device : serial device for input echo\n");
+    printf ("-v               : verbose mode\n");
+    printf ("-h               : print this help text\n");
     exit (-1); }
 
   gps_type= argv[0];
   baudrate= atoi (argv[1]);
-  serial_device= argv[2];
+  serial_device_in= argv[2];
   username= argv[3];
   password= argv[4];
+  strcpy(last_firmware, "-");
 
-  init_gps (serial_device, gps_type, baudrate);
+  if (logfile_flag) {
+    log_fd= fopen(logfile, "w");
+    write_to_log ("tracker started\n"); }
 
-  int f= open (serial_device, O_RDWR | O_NOCTTY );
+  init_gps (serial_device_in, gps_type, baudrate);
+
+  int f= open (serial_device_in, O_RDWR | O_NOCTTY );
   if (f < 0) {
     perror ("open ()");
     exit (-1); }
   set_baudrate (f, baudrate);
 
-  if (logfile_flag) {
-    log_fd= fopen(logfile, "w");
-    write_to_log ("tracker started\n"); }
+  int e= 0;
+  if (serial_device_out_flag) {
+    e= open (serial_device_out, O_RDWR | O_NOCTTY );
+    if (e < 0) {
+      perror ("open ()");
+      exit (-1); }
+    set_baudrate (e, baudrate); }
 
   int sock_id= socket (AF_INET, SOCK_DGRAM, 0);
   if (sock_id == -1) {
@@ -728,6 +813,8 @@ int main (int argc, char **argv)
   char buf[STRING_BUFFER_SIZE];
   while (true) {
     if (read (f, &c, 1) == 1) {
+      if (serial_device_out_flag) {
+        write (e, &c, 1); }
       buf [i]= c;
       if (verbose_flag) {
         putchar (c); }
