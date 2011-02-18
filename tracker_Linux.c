@@ -44,7 +44,7 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 /******************************************************************************/
 /******************************************************************************/
 
-#define VERSION                 "LT&nbsp;21"           // version string send to server
+#define VERSION                 "LT&nbsp;22"           // version string send to server
 #define SERVER_ADDR             "rechenserver.de"      // server address
 #define SERVER_PORT             8308                   // server port
 #define STRING_BUFFER_SIZE      2048                   // maximal buffer size for the strings we use
@@ -63,7 +63,7 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 // if verbose flag is true, the program outputs read data and log file entries
 // on standard output
 bool verbose_flag;
- 
+
 // if logfile flag is true, the program outputs information in a logfile
 bool logfile_flag= false;
 FILE *log_fd;
@@ -131,8 +131,8 @@ char *gps_type;
 char init_gps_SANAV[]="\
 $PFEC,GPint,GGA01,GLL00,GSA00,GSV00,RMC01,DTM00,VTG00,ZDA00*00\n";
 
-// initialization for Garmin moduls, 4800 baud
-char init_gps_Garmin_4800[]= "\
+// initialization for Garmin moduls
+char init_gps_Garmin[]= "\
 $PGRMO,GPGGA,1*00\n\
 $PGRMO,GPGSA,0*00\n\
 $PGRMO,GPGSV,0*00\n\
@@ -142,39 +142,18 @@ $PGRMO,PGRMM,0*00\n\
 $PGRMO,PGRMT,0*00\n\
 $PGRMO,PGRME,0*00\n\
 $PGRMO,PGRMB,0*00\n\
-$PGRMCE*00\n\
-$PGRMC,,51.5,,,,,,,,3,,2,4,*00\n";
+$PGRMCE*00\n";
 
-// initialization for Garmin moduls, 9600 baud
-char init_gps_Garmin_9600[]= "\
-$PGRMO,GPGGA,1*00\n\
-$PGRMO,GPGSA,0*00\n\
-$PGRMO,GPGSV,0*00\n\
-$PGRMO,GPRMC,1*00\n\
-$PGRMO,GPVTG,0*00\n\
-$PGRMO,PGRMM,0*00\n\
-$PGRMO,PGRMT,0*00\n\
-$PGRMO,PGRME,0*00\n\
-$PGRMO,PGRMB,0*00\n\
-$PGRMCE*00\n\
-$PGRMC,,51.5,,,,,,,,4,,2,4,*00\n";
+char init_gps_Garmin_SBAS_on[]= "$PGRMC1,1,,,,,,,W,,,,,*00\n";
+char init_gps_Garmin_SBAS_off[]= "$PGRMC1,1,,,,,,,N,,,,,*00\n";
 
-// initialization for Garmin moduls, 19200 baud
-char init_gps_Garmin_19200[]= "\
-$PGRMO,GPGGA,1*00\n\
-$PGRMO,GPGSA,0*00\n\
-$PGRMO,GPGSV,0*00\n\
-$PGRMO,GPRMC,1*00\n\
-$PGRMO,GPVTG,0*00\n\
-$PGRMO,PGRMM,0*00\n\
-$PGRMO,PGRMT,0*00\n\
-$PGRMO,PGRME,0*00\n\
-$PGRMO,PGRMB,0*00\n\
-$PGRMCE*00\n\
-$PGRMC,,51.5,,,,,,,,5,,2,4,*00\n";
+char init_gps_Garmin_4800[]= "$PGRMC,,,,,,,,,,3,,2,4,*00\n";
+char init_gps_Garmin_9600[]= "$PGRMC,,,,,,,,,,4,,2,4,*00\n";
+char init_gps_Garmin_19200[]= "$PGRMC,,,,,,,,,,5,,2,4,*00\n";
+char init_gps_Garmin_38400[]= "$PGRMC,,,,,,,,,,8,,2,4,*00\n";
 
-// initialization for SiRF moduls, 4800 baud
-char init_gps_SiRF_4800[]= "\
+// initialization for SiRF moduls
+char init_gps_SiRF[]= "\
 $PSRF103,00,00,01,01*00\n\
 $PSRF103,01,00,00,01*00\n\
 $PSRF103,02,00,00,01*00\n\
@@ -182,44 +161,15 @@ $PSRF103,03,00,00,01*00\n\
 $PSRF103,04,00,01,01*00\n\
 $PSRF103,05,00,00,01*00\n\
 $PSRF103,06,00,00,01*00\n\
-$PSRF103,08,00,00,01*00\n\
-$PSRF100,1,4800,8,1,0*00\n";
+$PSRF103,08,00,00,01*00\n";
 
-// initialization for SiRF moduls, 9600 baud
-char init_gps_SiRF_9600[]= "\
-$PSRF103,00,00,01,01*00\n\
-$PSRF103,01,00,00,01*00\n\
-$PSRF103,02,00,00,01*00\n\
-$PSRF103,03,00,00,01*00\n\
-$PSRF103,04,00,01,01*00\n\
-$PSRF103,05,00,00,01*00\n\
-$PSRF103,06,00,00,01*00\n\
-$PSRF103,08,00,00,01*00\n\
-$PSRF100,1,9600,8,1,0*00\n";
+char init_gps_SiRF_SBAS_on[]= "$PSRF151,01*00\n";
+char init_gps_SiRF_SBAS_off[]= "$PSRF151,00*00\n";
 
-// initialization for SiRF moduls, 19200 baud
-char init_gps_SiRF_19200[]= "\
-$PSRF103,00,00,01,01*00\n\
-$PSRF103,01,00,00,01*00\n\
-$PSRF103,02,00,00,01*00\n\
-$PSRF103,03,00,00,01*00\n\
-$PSRF103,04,00,01,01*00\n\
-$PSRF103,05,00,00,01*00\n\
-$PSRF103,06,00,00,01*00\n\
-$PSRF103,08,00,00,01*00\n\
-$PSRF100,1,19200,8,1,0*00\n";
-
-// initialization for SiRF moduls, 38400 baud
-char init_gps_SiRF_38400[]= "\
-$PSRF103,00,00,01,01*00\n\
-$PSRF103,01,00,00,01*00\n\
-$PSRF103,02,00,00,01*00\n\
-$PSRF103,03,00,00,01*00\n\
-$PSRF103,04,00,01,01*00\n\
-$PSRF103,05,00,00,01*00\n\
-$PSRF103,06,00,00,01*00\n\
-$PSRF103,08,00,00,01*00\n\
-$PSRF100,1,38400,8,1,0*00\n";
+char init_gps_SiRF_4800[]= "$PSRF100,1,4800,8,1,0*00\n";
+char init_gps_SiRF_9600[]= "$PSRF100,1,9600,8,1,0*00\n";
+char init_gps_SiRF_19200[]= "$PSRF100,1,19200,8,1,0*00\n";
+char init_gps_SiRF_38400[]= "$PSRF100,1,38400,8,1,0*00\n";
 
 /******************************************************************************/
 /***** time functions *********************************************************/
@@ -268,18 +218,19 @@ long long ensec_time ()
 
 void write_to_log (const char *text)
 {
-  int year, mon, day, min, hour;
-  long double sec_nsec;
-  char buf [STRING_BUFFER_SIZE];
+  if (logfile_flag) {
+    int year, mon, day, min, hour;
+    long double sec_nsec;
+    char buf [STRING_BUFFER_SIZE];
 
-  ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
-  sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d,", year, mon, day, hour, min, sec_nsec, (int)getpid());
+    ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
+    sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d,", year, mon, day, hour, min, sec_nsec, (int)getpid());
 
-  fprintf (log_fd, "%s %s", buf, text);
-  fflush (log_fd);
-  if (verbose_flag) {
-    printf ("%s %s", buf, text);
-    fflush (stdout); }
+    fprintf (log_fd, "%s %s", buf, text);
+    fflush (log_fd);
+    if (verbose_flag) {
+      printf ("%s %s", buf, text);
+      fflush (stdout); } }
 }
 
 /******************************************************************************/
@@ -370,35 +321,59 @@ void set_baudrate (int f, int baudrate)
 }
 
 // initialize the GPS modul
-void init_gps (const char *serial_device, char *gps_type, int baudrate)
+void init_gps (const char *serial_device, char *gps_type, int baudrate, bool SBAS_flag)
 {
   char init_string [STRING_BUFFER_SIZE];
   char buf [STRING_BUFFER_SIZE];
 
-  if ((strcmp (gps_type, "SANAV") == 0) && (baudrate == 4800)) {
-    strcpy (init_string, init_gps_SANAV); }
+  if (strcmp (gps_type, "SANAV") == 0) {
+    strcpy (init_string, init_gps_SANAV);
+    if (baudrate != 4800) {
+      printf ("Do not know how to initialize GPS device SANAV with %d baud!\n", baudrate);
+      exit (-1); }
+    if (SBAS_flag == 1) {
+      printf ("Do not know how to initialize GPS device SANAV with SBAS support!\n");
+      exit (-1); } }
 
-  else if ((strcmp (gps_type, "Garmin") == 0) && (baudrate == 4800)) {
-    strcpy (init_string, init_gps_Garmin_4800); }
-  else if ((strcmp (gps_type, "Garmin") == 0) && (baudrate == 9600)) {
-    strcpy (init_string, init_gps_Garmin_9600); }
-  else if ((strcmp (gps_type, "Garmin") == 0) && (baudrate == 19200)) {
-    strcpy (init_string, init_gps_Garmin_19200); }
+  else if (strcmp (gps_type, "Garmin") == 0) {
+    strcpy (init_string, init_gps_Garmin);
+    if (baudrate == 4800) {
+      strcat (init_string, init_gps_Garmin_4800); }
+    else if (baudrate == 9600) {
+      strcat (init_string, init_gps_Garmin_9600); }
+    else if (baudrate == 19200) {
+      strcat (init_string, init_gps_Garmin_19200); }
+    else if (baudrate == 38400) {
+      strcat (init_string, init_gps_Garmin_38400); }
+    else {
+      printf ("Do not know how to initialize GPS device Garmin with %d baud!\n", baudrate);
+      exit (-1); }
+    if (SBAS_flag) {
+      strcat (init_string, init_gps_Garmin_SBAS_on); }
+    else {
+      strcat (init_string, init_gps_Garmin_SBAS_off); } }
 
-  else if ((strcmp (gps_type, "SiRF") == 0) && (baudrate == 4800)) {
-    strcpy (init_string, init_gps_SiRF_4800); }
-  else if ((strcmp (gps_type, "SiRF") == 0) && (baudrate == 9600)) {
-    strcpy (init_string, init_gps_SiRF_9600); }
-  else if ((strcmp (gps_type, "SiRF") == 0) && (baudrate == 19200)) {
-    strcpy (init_string, init_gps_SiRF_19200); }
-  else if ((strcmp (gps_type, "SiRF") == 0) && (baudrate == 38400)) {
-    strcpy (init_string, init_gps_SiRF_38400); }
+  else if (strcmp (gps_type, "SiRF") == 0) {
+    strcpy (init_string, init_gps_SiRF);
+    if (baudrate == 4800) {
+      strcat (init_string, init_gps_SiRF_4800); }
+    else if (baudrate == 9600) {
+      strcat (init_string, init_gps_SiRF_9600); }
+    else if (baudrate == 19200) {
+      strcat (init_string, init_gps_SiRF_19200); }
+    else if (baudrate == 38400) {
+      strcat (init_string, init_gps_SiRF_38400); }
+    else {
+      printf ("Do not know how to initialize GPS device SiRF with %d baud!\n", baudrate);
+      exit (-1); }
+    if (SBAS_flag) {
+      strcat (init_string, init_gps_SiRF_SBAS_on); }
+    else {
+      strcat (init_string, init_gps_SiRF_SBAS_off); } }
+
   else if (strcmp (gps_type, "-") == 0) {
     return; }
-  else {
-    printf ("Do not know how to initialize GPS device %s with %d baud!\n", gps_type, baudrate);
-    exit (-1); }
-    
+
   fill_checksum (init_string);
   if (verbose_flag) {
     printf ("%s",init_string);
@@ -417,6 +392,7 @@ void init_gps (const char *serial_device, char *gps_type, int baudrate)
     write (f, "55555\n55555\n55555\n", 18); // only for synchronization
     write (f, init_string, strlen(init_string));
     close (f); }
+
 }
 
 /******************************************************************************/
@@ -444,6 +420,9 @@ void send_strike (int sock_id, struct sockaddr *serv_addr, const char *username,
 // write status to log file
 void log_status ()
 {
+  if ((last_last_imode)&&(last_imode))
+    return;
+
   char buf [STRING_BUFFER_SIZE];
 
   if (last_checksum_error) {
@@ -625,8 +604,7 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
         send_strike (sock_id, serv_addr, username, password);
         last_transmition_time= now_time; }
 
-      if (logfile_flag) {
-        log_status(); } } }
+      log_status(); } }
 
   // BLSIG sentence type 1
   else if ((sscanf (line, "$BLSIG,%6llx,%2x,%2x%c", &counter, &A, &B, &status) == 4)&&(status == '*')) {
@@ -668,11 +646,10 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
   // Firmware sentence
   else if (sscanf (line, "Firmware Version: %s", firmware) == 1) {
     strcpy(last_firmware, firmware);
-    if (logfile_flag) {
-      write_to_log (line); } }
+    write_to_log (line); }
 
   // unknown sentence
-  else if (logfile_flag) {
+  else {
     sprintf (buf, "unknown sentence: %s", line);
     write_to_log (buf); }
 
@@ -705,35 +682,41 @@ int main (int argc, char **argv)
     argv++; }
 
   char *logfile= 0;
-  char *serial_device_in;
-  char *serial_device_out;
+  char *serial_device_in= 0;
+  char *serial_device_out= 0;
   bool serial_device_out_flag= false;
   char *username;
   char *password;
   verbose_flag= false;
+  bool SBAS_flag= false;
   bool help_flag= false;
 
   bool flag_found;
   do {
     flag_found= false;
-    if ((argc > 0) && (strcmp (argv[0],"-l") == 0)) {
+    if ((argc > 0) && ((strcmp (argv[0], "-l") == 0)|(strcmp (argv[0],"--log") == 0))) {
       flag_found= true;
       logfile_flag= true;
       logfile= argv[1];
       argc-=2;
       argv+=2; }
-    if ((argc > 0) && (strcmp (argv[0],"-e") == 0)) {
+    if ((argc > 0) && ((strcmp (argv[0], "-e") == 0)||(strcmp (argv[0],"--echo") == 0))) {
       flag_found= true;
       serial_device_out_flag= true;
       serial_device_out= argv[1];
       argc-=2;
       argv+=2; }
-    if ((argc > 0) && (strcmp (argv[0],"-v") == 0)) {
+    if ((argc > 0) && ((strcmp (argv[0], "-s") == 0)||(strcmp (argv[0],"--SBAS") == 0))) {
+      flag_found= true;
+      SBAS_flag= true;
+      argc-=1;
+      argv+=1; }
+    if ((argc > 0) && ((strcmp (argv[0],"-v") == 0)||(strcmp (argv[0],"--verbose") == 0))) {
       flag_found= true;
       verbose_flag= true;
       argc-=1;
       argv+=1; }
-    if ((argc > 0) && (strcmp (argv[0],"-h") == 0)) {
+    if ((argc > 0) && ((strcmp (argv[0],"-h") == 0)||(strcmp (argv[0], "--hrlp") == 0))) {
       flag_found= true;
       help_flag= true;
       argc--;
@@ -741,7 +724,7 @@ int main (int argc, char **argv)
   while (flag_found);
 
   if ((help_flag)||(argc != 5)) {
-    printf ("%s: [-v] [-h] [-l logfile] gps_type baudrate serial_device username password\n",program_name);
+    printf ("%s: [-v] [-h] [-l logfile] [-e serial_device] [-s] gps_type baudrate serial_device username password\n",program_name);
     printf ("gps_type         : gps type (SANAV, Garmin, or SiRF ('-' for no initialization)\n");
     printf ("baudrate         : baudrate (4800, 9600, 19200, or 38400)\n");
     printf ("serial_device    : serial device (example: /dev/ttyS0)\n");
@@ -749,6 +732,7 @@ int main (int argc, char **argv)
     printf ("password         : password (example: xxxxxxxx)\n");
     printf ("-l logfile       : log tracker information\n");
     printf ("-e serial_device : serial device for input echo\n");
+    printf ("-s               : activate SBAS (WAAS/EGNOS/MSAS) support\n");
     printf ("-v               : verbose mode\n");
     printf ("-h               : print this help text\n");
     exit (-1); }
@@ -756,15 +740,16 @@ int main (int argc, char **argv)
   gps_type= argv[0];
   baudrate= atoi (argv[1]);
   serial_device_in= argv[2];
+  strcpy(last_firmware, "-");
   username= argv[3];
   password= argv[4];
-  strcpy(last_firmware, "-");
 
   if (logfile_flag) {
-    log_fd= fopen(logfile, "w");
-    write_to_log ("tracker started\n"); }
+    log_fd= fopen(logfile, "w"); }
 
-  init_gps (serial_device_in, gps_type, baudrate);
+  write_to_log ("tracker started\n");
+
+  init_gps (serial_device_in, gps_type, baudrate, SBAS_flag);
 
   int f= open (serial_device_in, O_RDWR | O_NOCTTY );
   if (f < 0) {
