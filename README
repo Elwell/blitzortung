@@ -1,0 +1,11 @@
+What's in here:
+
+tracker_Linux.c -- the 'official'linux client. NB: only the
+master version as distributed upstream is untouched.
+Any of my alterations are unofficial and unsupported.
+
+blseq2plt.py -- Python script to parse a logfile (generated with -e
+command line to the tracker) and pull out the BLSEQ strings. It then
+splits up the string into the 2 data streams (depending on version) and
+feeds output to gnuplot
+
