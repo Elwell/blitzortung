@@ -240,7 +240,7 @@ void write_to_log (const char *text)
 }
 
   if (syslog_flag) {
-    openlog ("blizortung", LOG_CONS|LOG_PID, LOG_USER);
+    openlog ("blitzortung", LOG_CONS|LOG_PID, LOG_USER);
     syslog (LOG_INFO,"%s",text);
     closelog (); }
 }
