@@ -36,6 +36,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <math.h>
+#include <syslog.h>
 
 long double fabsl (long double x); // this is only necessary for the OpenWrt
                                    // but do not disturb other systems
@@ -44,7 +45,7 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 /******************************************************************************/
 /******************************************************************************/
 
-#define VERSION                 "LT&nbsp;22"           // version string send to server
+#define VERSION                 "LT&nbsp;23"           // version string send to server
 #define SERVER_ADDR             "rechenserver.de"      // server address
 #define SERVER_PORT             8308                   // server port
 #define STRING_BUFFER_SIZE      2048                   // maximal buffer size for the strings we use
@@ -55,6 +56,7 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 
 #define MAX_STR_SEC             12                     // maximal number of strikes per second
 #define MAX_NONZERO_SEC         6                      // maximal number of seconds with strikes
+#define MIN_SATS                3                      // Warn if less than or equal to this
 
 /******************************************************************************/
 /******************************************************************************/
@@ -67,6 +69,9 @@ bool verbose_flag;
 // if logfile flag is true, the program outputs information in a logfile
 bool logfile_flag= false;
 FILE *log_fd;
+
+// if syslog flag is true, the program uses the system logger
+bool syslog_flag= false;
 
 // all these global last and last_last variables store the information of the
 // last BLSEC sentence
@@ -213,7 +218,7 @@ long long ensec_time ()
 }
 
 /******************************************************************************/
-/***** write to log file ******************************************************/
+/***** write to log file or syslog ********************************************/
 /******************************************************************************/
 
 void write_to_log (const char *text)
@@ -228,10 +233,19 @@ void write_to_log (const char *text)
 
     fprintf (log_fd, "%s %s", buf, text);
     fflush (log_fd);
-    if (verbose_flag) {
-      printf ("%s %s", buf, text);
-      fflush (stdout); } }
+
+  /*if (verbose_flag) {
+    printf ("%s %s", buf, text);
+    fflush (stdout); } */
 }
+
+  if (syslog_flag) {
+    openlog ("blizortung", LOG_CONS|LOG_PID, LOG_USER);
+    syslog (LOG_INFO,"%s",text);
+    closelog (); }
+}
+
+
 
 /******************************************************************************/
 /***** initialization *********************************************************/
@@ -411,6 +425,8 @@ void send_strike (int sock_id, struct sockaddr *serv_addr, const char *username,
   if (verbose_flag) { 
     printf ("%s", buf);
     fflush (stdout); }
+  if (syslog_flag) {
+    write_to_log ("Strike sent\n"); }
 }
 
 /******************************************************************************/
@@ -432,7 +448,7 @@ void log_status ()
     sprintf (buf, "GPS seconds running, %d %d\n", last_last_sec, last_sec);
     write_to_log (buf); }
   if ((last_last_sec_ok)&&(!(last_sec_ok))) {
-    sprintf (buf, "GPS seconds stoped, %d %d\n", last_last_sec, last_sec);
+    sprintf (buf, "GPS seconds stopped, %d %d\n", last_last_sec, last_sec);
     write_to_log (buf); }
 
   if (last_status != last_last_status) {
@@ -446,9 +462,10 @@ void log_status ()
     sprintf (buf, "Position lost, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", last_lat, last_lon, last_alt);
     write_to_log (buf); }
 
-//  if (last_last_sat != last_sat) {
-//    sprintf (buf, "Number of satellites changed from %d to %d\n", last_last_sat, last_sat);
-//    write_to_log (buf); }
+// We only want to warn about Satellite counts when under threshold
+ if ((last_last_sat != last_sat)&&(last_sat <= MIN_SATS)) {
+   sprintf (buf, "Number of satellites changed from %d to %d\n", last_last_sat, last_sat);
+   write_to_log (buf); }
 
   if ((!(last_last_accuracy_ok))&&(last_accuracy_ok)) {
     sprintf (buf, "1PPS signal accuracy ok, counter: %06llX %06llX, %+.0Lf nsec\n", last_last_counter, last_counter, time_precision*1000000000.0l);
@@ -458,10 +475,10 @@ void log_status ()
     write_to_log (buf); }
 
   if ((!(last_last_imode))&&(last_imode)) {
-    sprintf (buf, "start interference mode, %d strikes per seconds, %d seconds nonzero\n", last_str_sec, nonzero_sec);
+    sprintf (buf, "started interference mode, %d strikes per second, %d seconds nonzero\n", last_str_sec, nonzero_sec);
     write_to_log (buf); }
   if ((last_last_imode)&&(!(last_imode))) {
-    sprintf (buf, "stop interferences mode\n");
+    sprintf (buf, "stopped interference mode\n");
     write_to_log (buf); }
 }
 
@@ -711,12 +728,17 @@ int main (int argc, char **argv)
       SBAS_flag= true;
       argc-=1;
       argv+=1; }
+    if ((argc > 0) && ((strcmp (argv[0],"-L") == 0)||(strcmp (argv[0],"--syslog") == 0))) {
+      flag_found= true;
+      syslog_flag= true;
+      argc-=1;
+      argv+=1; }
     if ((argc > 0) && ((strcmp (argv[0],"-v") == 0)||(strcmp (argv[0],"--verbose") == 0))) {
       flag_found= true;
       verbose_flag= true;
       argc-=1;
       argv+=1; }
-    if ((argc > 0) && ((strcmp (argv[0],"-h") == 0)||(strcmp (argv[0], "--hrlp") == 0))) {
+    if ((argc > 0) && ((strcmp (argv[0],"-h") == 0)||(strcmp (argv[0], "--help") == 0))) {
       flag_found= true;
       help_flag= true;
       argc--;
@@ -731,6 +753,7 @@ int main (int argc, char **argv)
     printf ("username         : username (example: PeterPim) \n");
     printf ("password         : password (example: xxxxxxxx)\n");
     printf ("-l logfile       : log tracker information\n");
+    printf ("-L               : send info to syslog\n");
     printf ("-e serial_device : serial device for input echo\n");
     printf ("-s               : activate SBAS (WAAS/EGNOS/MSAS) support\n");
     printf ("-v               : verbose mode\n");
