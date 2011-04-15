@@ -807,7 +807,7 @@ int main (int argc, char **argv)
       hostent *host_info= gethostbyname (SERVER_ADDR);
       if (host_info == NULL) {
         write_to_log ("gethostbyname () failed, try again in 60 seconds\n");
-        sleep (10);
+        sleep (60);
         hostent *host_info= gethostbyname (SERVER_ADDR);
         if (host_info == NULL) {
           write_to_log ("gethostbyname () failed, give up, check internet connection\n");
