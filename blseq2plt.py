@@ -15,7 +15,7 @@ logfile = open("sample.dat")
 try:
 	for line in logfile:
 		line = line.rstrip()
-		(ident, timstamp, data) = line.split(',')
+		(ident, timestamp, data) = line.split(',')
 		(data,checksum) = data.split('*')
 		# split data string into chunks for each pair of readings
 		# if using 2 channel firmware:
@@ -33,6 +33,7 @@ finally:
 
 plt.plot(chan1, label='Channel 1')
 plt.plot(chan2, label='Channel 2')
+plt.title(timestamp)
 plt.legend()
 plt.show()
 
