@@ -35,6 +35,7 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <signal.h>
+#include <syslog.h>
 #include <math.h>
 
 long double fabsl (long double x); // this is only necessary for the OpenWrt
@@ -44,7 +45,7 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 /******************************************************************************/
 /******************************************************************************/
 
-#define VERSION                 "LT&nbsp;22"           // version string send to server
+#define VERSION                 "LT&nbsp;23"           // version string send to server
 #define SERVER_ADDR             "rechenserver.de"      // server address
 #define SERVER_PORT             8308                   // server port
 #define STRING_BUFFER_SIZE      2048                   // maximal buffer size for the strings we use
@@ -60,13 +61,23 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 /******************************************************************************/
 /******************************************************************************/
 
-// if verbose flag is true, the program outputs read data and log file entries
-// on standard output
-bool verbose_flag;
+// if verbose flags are true, the program outputs information on standard output
+bool verbose_log_flag;
+bool verbose_info_flag;
+bool verbose_output_flag;
+bool verbose_sent_flag;
 
-// if logfile flag is true, the program outputs information in a logfile
-bool logfile_flag= false;
-FILE *log_fd;
+// if logfile flags are true, the program outputs information in a file
+bool logfile_log_flag= false;
+bool logfile_output_flag= false;
+bool logfile_sent_flag= false;
+
+// if syslog flag is true, the program uses the system logger for system information
+bool syslog_flag= false;
+
+FILE *logfile_log_fd;
+FILE *logfile_output_fd;
+FILE *logfile_sent_fd;
 
 // all these global last and last_last variables store the information of the
 // last BLSEC sentence
@@ -213,24 +224,28 @@ long long ensec_time ()
 }
 
 /******************************************************************************/
-/***** write to log file ******************************************************/
+/***** write log messages to log file ***************************************/
 /******************************************************************************/
 
-void write_to_log (const char *text)
+void write_log_messages (const char *text)
 {
-  if (logfile_flag) {
-    int year, mon, day, min, hour;
-    long double sec_nsec;
-    char buf [STRING_BUFFER_SIZE];
+  int year, mon, day, min, hour;
+  long double sec_nsec;
+  char buf [STRING_BUFFER_SIZE];
 
-    ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
-    sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d,", year, mon, day, hour, min, sec_nsec, (int)getpid());
+  ensec_to_utc_ctime (ensec_time(), &year, &mon, &day, &hour, &min, &sec_nsec);
+  sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02.0Lf, PID: %d,", year, mon, day, hour, min, sec_nsec, (int)getpid());
 
-    fprintf (log_fd, "%s %s", buf, text);
-    fflush (log_fd);
-    if (verbose_flag) {
-      printf ("%s %s", buf, text);
-      fflush (stdout); } }
+  if (logfile_log_flag) {
+    fprintf (logfile_log_fd, "%s %s", buf, text);
+    fflush (logfile_log_fd); }
+  if (verbose_log_flag) {
+    printf ("%s %s", buf, text);
+    fflush (stdout); }
+  if (syslog_flag) {
+    openlog ("blitzortung", LOG_CONS|LOG_PID, LOG_USER);
+    syslog (LOG_INFO, "%s", text);
+    closelog (); }
 }
 
 /******************************************************************************/
@@ -375,9 +390,7 @@ void init_gps (const char *serial_device, char *gps_type, int baudrate, bool SBA
     return; }
 
   fill_checksum (init_string);
-  if (verbose_flag) {
-    printf ("%s",init_string);
-    fflush (stdout); }
+  write_log_messages (init_string);
 
   int br= 4800;
   for (int b=0; b<4; b++) {
@@ -387,7 +400,7 @@ void init_gps (const char *serial_device, char *gps_type, int baudrate, bool SBA
       exit (-1); }
     set_baudrate (f, br);
     sprintf (buf, "initialize GPS with %s, %d baud, using %d baud\n", gps_type, baudrate, br);
-    write_to_log (buf);
+    write_log_messages (buf);
     br+= br;
     write (f, "55555\n55555\n55555\n", 18); // only for synchronization
     write (f, init_string, strlen(init_string));
@@ -406,11 +419,14 @@ void send_strike (int sock_id, struct sockaddr *serv_addr, const char *username,
     last_year, last_mon, last_day, last_hour, last_min, last_sec, last_nsec, lat_average_x, lon_average_x, alt_average_x, username, password, last_status, last_sat, last_channels, last_values, last_bits, last_data, VERSION, last_firmware, baudrate, gps_type);
 
   if (sendto (sock_id, buf, strlen (buf), 0, serv_addr, sizeof (sockaddr)) == -1) {
-    write_to_log ("error: sendto ()\n");
+    write_log_messages ("error: sendto ()\n");
     return; }
-  if (verbose_flag) { 
+  if (verbose_sent_flag) { 
     printf ("%s", buf);
     fflush (stdout); }
+  if (logfile_sent_flag) { 
+    fprintf (logfile_sent_fd, "%s", buf);
+    fflush (logfile_sent_fd); }
 }
 
 /******************************************************************************/
@@ -426,43 +442,43 @@ void log_status ()
   char buf [STRING_BUFFER_SIZE];
 
   if (last_checksum_error) {
-    write_to_log ("Checksum error\n"); }
+    write_log_messages ("Checksum error\n"); }
 
   if ((!(last_last_sec_ok))&&(last_sec_ok)) {
     sprintf (buf, "GPS seconds running, %d %d\n", last_last_sec, last_sec);
-    write_to_log (buf); }
+    write_log_messages (buf); }
   if ((last_last_sec_ok)&&(!(last_sec_ok))) {
-    sprintf (buf, "GPS seconds stoped, %d %d\n", last_last_sec, last_sec);
-    write_to_log (buf); }
+    sprintf (buf, "GPS seconds stopped, %d %d\n", last_last_sec, last_sec);
+    write_log_messages (buf); }
 
   if (last_status != last_last_status) {
     sprintf (buf, "GPS status changed from '%c' to '%c'\n", last_last_status, last_status);
-    write_to_log (buf); }
+    write_log_messages (buf); }
 
   if ((!(last_last_pos_ok))&&(last_pos_ok)) {
     sprintf (buf, "Position fixed, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", lat_average, lon_average, alt_average);
-    write_to_log (buf); }
+    write_log_messages (buf); }
   if ((last_last_pos_ok)&&(!(last_pos_ok))) {
     sprintf (buf, "Position lost, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", last_lat, last_lon, last_alt);
-    write_to_log (buf); }
+    write_log_messages (buf); }
 
 //  if (last_last_sat != last_sat) {
 //    sprintf (buf, "Number of satellites changed from %d to %d\n", last_last_sat, last_sat);
-//    write_to_log (buf); }
+//    write_log_messages (buf); }
 
   if ((!(last_last_accuracy_ok))&&(last_accuracy_ok)) {
     sprintf (buf, "1PPS signal accuracy ok, counter: %06llX %06llX, %+.0Lf nsec\n", last_last_counter, last_counter, time_precision*1000000000.0l);
-    write_to_log (buf); }
+    write_log_messages (buf); }
   if ((last_last_accuracy_ok)&&(!(last_accuracy_ok))) {
     sprintf (buf, "1PPS signal inaccurate, counter: %06llX %06llX, accuracy: %+.0LF nsec\n", last_last_counter, last_counter, time_precision*1000000000.0l);
-    write_to_log (buf); }
+    write_log_messages (buf); }
 
   if ((!(last_last_imode))&&(last_imode)) {
-    sprintf (buf, "start interference mode, %d strikes per seconds, %d seconds nonzero\n", last_str_sec, nonzero_sec);
-    write_to_log (buf); }
+    sprintf (buf, "interference mode started, %d strikes per seconds, %d seconds nonzero\n", last_str_sec, nonzero_sec);
+    write_log_messages (buf); }
   if ((last_last_imode)&&(!(last_imode))) {
-    sprintf (buf, "stop interferences mode\n");
-    write_to_log (buf); }
+    sprintf (buf, "interference mode stopped\n");
+    write_log_messages (buf); }
 }
 
 void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const char *username, const char *password)
@@ -590,7 +606,7 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
       last_str_sec= str_sec;
       str_sec= 0;
 
-      if (verbose_flag) {
+      if (verbose_info_flag) {
         printf ("lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf, time precision: %+.0Lf nsec\n", lat_average_x, lon_average_x, alt_average_x, time_precision*1000000000.0l);
         fflush (stdout); }
 
@@ -646,12 +662,12 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
   // Firmware sentence
   else if (sscanf (line, "Firmware Version: %s", firmware) == 1) {
     strcpy(last_firmware, firmware);
-    write_to_log (line); }
+    write_log_messages (line); }
 
   // unknown sentence
   else {
     sprintf (buf, "unknown sentence: %s", line);
-    write_to_log (buf); }
+    write_log_messages (buf); }
 
   if (BLSIG_found) { 
     if (counter >  last_counter) {
@@ -681,25 +697,67 @@ int main (int argc, char **argv)
     argc--;
     argv++; }
 
-  char *logfile= 0;
+  char *logfile_log= 0;
+  char *logfile_output= 0;
+  char *logfile_sent= 0;
   char *serial_device_in= 0;
   char *serial_device_out= 0;
   bool serial_device_out_flag= false;
   char *username;
   char *password;
-  verbose_flag= false;
+  verbose_log_flag= false;
+  verbose_info_flag= false;
+  verbose_output_flag= false;
+  verbose_sent_flag= false;
   bool SBAS_flag= false;
   bool help_flag= false;
 
   bool flag_found;
   do {
     flag_found= false;
-    if ((argc > 0) && ((strcmp (argv[0], "-l") == 0)|(strcmp (argv[0],"--log") == 0))) {
+    if ((argc > 0) && ((strcmp (argv[0],"-L") == 0)||(strcmp (argv[0],"--syslog") == 0))) {
+    flag_found= true;
+      syslog_flag= true;
+      argc-=1;
+      argv+=1; }
+    if ((argc > 0) && ((strcmp (argv[0], "-ll") == 0)|(strcmp (argv[0],"--log_log") == 0))) {
       flag_found= true;
-      logfile_flag= true;
-      logfile= argv[1];
+      logfile_log_flag= true;
+      logfile_log= argv[1];
       argc-=2;
       argv+=2; }
+    if ((argc > 0) && ((strcmp (argv[0], "-lo") == 0)|(strcmp (argv[0],"--log_output") == 0))) {
+      flag_found= true;
+      logfile_output_flag= true;
+      logfile_output= argv[1];
+      argc-=2;
+      argv+=2; }
+    if ((argc > 0) && ((strcmp (argv[0], "-ls") == 0)|(strcmp (argv[0],"--log_sent") == 0))) {
+      flag_found= true;
+      logfile_sent_flag= true;
+      logfile_sent= argv[1];
+      argc-=2;
+      argv+=2; }
+    if ((argc > 0) && ((strcmp (argv[0],"-vl") == 0)||(strcmp (argv[0],"--verbose_log") == 0))) {
+      flag_found= true;
+      verbose_log_flag= true;
+      argc-=1;
+      argv+=1; }
+    if ((argc > 0) && ((strcmp (argv[0],"-vi") == 0)||(strcmp (argv[0],"--verbose_info") == 0))) {
+      flag_found= true;
+      verbose_info_flag= true;
+      argc-=1;
+      argv+=1; }
+    if ((argc > 0) && ((strcmp (argv[0],"-vo") == 0)||(strcmp (argv[0],"--verbose_output") == 0))) {
+      flag_found= true;
+      verbose_output_flag= true;
+      argc-=1;
+      argv+=1; }
+    if ((argc > 0) && ((strcmp (argv[0],"-vs") == 0)||(strcmp (argv[0],"--verbose_sent") == 0))) {
+      flag_found= true;
+      verbose_sent_flag= true;
+      argc-=1;
+      argv+=1; }
     if ((argc > 0) && ((strcmp (argv[0], "-e") == 0)||(strcmp (argv[0],"--echo") == 0))) {
       flag_found= true;
       serial_device_out_flag= true;
@@ -711,12 +769,7 @@ int main (int argc, char **argv)
       SBAS_flag= true;
       argc-=1;
       argv+=1; }
-    if ((argc > 0) && ((strcmp (argv[0],"-v") == 0)||(strcmp (argv[0],"--verbose") == 0))) {
-      flag_found= true;
-      verbose_flag= true;
-      argc-=1;
-      argv+=1; }
-    if ((argc > 0) && ((strcmp (argv[0],"-h") == 0)||(strcmp (argv[0], "--hrlp") == 0))) {
+    if ((argc > 0) && ((strcmp (argv[0],"-h") == 0)||(strcmp (argv[0], "--help") == 0))) {
       flag_found= true;
       help_flag= true;
       argc--;
@@ -724,17 +777,34 @@ int main (int argc, char **argv)
   while (flag_found);
 
   if ((help_flag)||(argc != 5)) {
-    printf ("%s: [-v] [-h] [-l logfile] [-e serial_device] [-s] gps_type baudrate serial_device username password\n",program_name);
+    printf ("%s: [-h] [-l] [-le file] [-lo file] [-ls file] [-ve] [-vi] [-vo] [-vs] [-e serial_device] [-s] gps_type baud_rate serial_device username password\n", program_name);
     printf ("gps_type         : gps type (SANAV, Garmin, or SiRF ('-' for no initialization)\n");
-    printf ("baudrate         : baudrate (4800, 9600, 19200, or 38400)\n");
+    printf ("baud_rate        : baud rate (4800, 9600, 19200, or 38400)\n");
     printf ("serial_device    : serial device (example: /dev/ttyS0)\n");
     printf ("username         : username (example: PeterPim) \n");
     printf ("password         : password (example: xxxxxxxx)\n");
-    printf ("-l logfile       : log tracker information\n");
-    printf ("-e serial_device : serial device for input echo\n");
-    printf ("-s               : activate SBAS (WAAS/EGNOS/MSAS) support\n");
-    printf ("-v               : verbose mode\n");
+    printf ("-L               : write log messages to the system message logger\n");
+    printf ("                   altervative: --syslog \n");
+    printf ("-ll file         : write log messages to file\n");
+    printf ("                   alternative: --log_log file\n");
+    printf ("-lo file         : write board output to file\n");
+    printf ("                   alternative: --log_output file\n");
+    printf ("-ls file         : write sent information to file\n");
+    printf ("                   alternative: --log_sent file\n");
+    printf ("-vl              : verbose mode, write log messages to stdout\n");
+    printf ("                   alternative: --verbose_log\n");
+    printf ("-vi              : verbose mode, write system information to stdout\n");
+    printf ("                   alternative: --verbose_info\n");
+    printf ("-vo              : verbose mode, write board output to stdout\n");
+    printf ("                   alternative: --verbose_output\n");
+    printf ("-vs              : verbose mode, write sent information to stdout\n");
+    printf ("                   alternative: --verbose_sent\n");
     printf ("-h               : print this help text\n");
+    printf ("                   alternative: --help\n");
+    printf ("-e serial_device : serial device for input echo\n");
+    printf ("                   alternative: --echo serial_device\n");
+    printf ("-s               : activate SBAS (WAAS/EGNOS/MSAS) support\n");
+    printf ("                   alternative: --SBAS\n");
     exit (-1); }
 
   gps_type= argv[0];
@@ -744,10 +814,16 @@ int main (int argc, char **argv)
   username= argv[3];
   password= argv[4];
 
-  if (logfile_flag) {
-    log_fd= fopen(logfile, "w"); }
+  if (logfile_log_flag) {
+    logfile_log_fd= fopen(logfile_log, "w"); }
+  if (logfile_output_flag) {
+    logfile_output_fd= fopen(logfile_output, "w"); }
+  if (logfile_sent_flag) {
+    logfile_sent_fd= fopen(logfile_sent, "w"); }
 
-  write_to_log ("tracker started\n");
+  char buf[STRING_BUFFER_SIZE];
+		   
+  write_log_messages ("tracker started\n");
 
   init_gps (serial_device_in, gps_type, baudrate, SBAS_flag);
 
@@ -779,15 +855,15 @@ int main (int argc, char **argv)
     /* host not given by IP but by name */
     struct hostent *host_info= gethostbyname (SERVER_ADDR);
     if (host_info == NULL) {
-      write_to_log ("gethostbyname () failed, try again in 10 seconds\n");
+      write_log_messages ("gethostbyname () failed, try again in 10 seconds\n");
       sleep (10);
       hostent *host_info= gethostbyname (SERVER_ADDR);
       if (host_info == NULL) {
-        write_to_log ("gethostbyname () failed, try again in 60 seconds\n");
+        write_log_messages ("gethostbyname () failed, try again in 60 seconds\n");
         sleep (10);
         hostent *host_info= gethostbyname (SERVER_ADDR);
         if (host_info == NULL) {
-          write_to_log ("gethostbyname () failed, give up, check internet connection\n");
+          write_log_messages ("gethostbyname () failed, give up, check internet connection\n");
           perror ("gethostbyname ()");
           close (sock_id);
           exit (-1); } } }
@@ -795,14 +871,16 @@ int main (int argc, char **argv)
 
   char c;
   int i=0;
-  char buf[STRING_BUFFER_SIZE];
   while (true) {
     if (read (f, &c, 1) == 1) {
       if (serial_device_out_flag) {
         write (e, &c, 1); }
-      buf [i]= c;
-      if (verbose_flag) {
+      if (verbose_output_flag) {
         putchar (c); }
+      if (logfile_output_flag) {
+        fwrite (&c, 1, 1, logfile_output_fd);
+        fflush (logfile_log_fd); }
+      buf [i]= c;
       if (i < STRING_BUFFER_SIZE-2) {
         i++; }
       if (c == '\n') {
@@ -810,3 +888,4 @@ int main (int argc, char **argv)
         evaluate (buf, sock_id, (struct sockaddr *)&serv_addr, username, password);
         i= 0; } } }
 }
+
