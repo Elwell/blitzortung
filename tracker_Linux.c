@@ -45,7 +45,7 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 /******************************************************************************/
 /******************************************************************************/
 
-#define VERSION                 "LT&nbsp;23"           // version string send to server
+#define VERSION                 "LT&nbsp;24"           // version string send to server
 #define SERVER_ADDR             "rechenserver.de"      // server address
 #define SERVER_PORT             8308                   // server port
 #define STRING_BUFFER_SIZE      2048                   // maximal buffer size for the strings we use
@@ -54,8 +54,7 @@ long double fabsl (long double x); // this is only necessary for the OpenWrt
 #define POS_PRECISION           0.001000l              // position precision in degree to reach before sending data
 #define TIME_PRECISION          0.000001l              // time precision to reach before sending data
 
-#define MAX_STR_SEC             12                     // maximal number of strikes per second
-#define MAX_NONZERO_SEC         6                      // maximal number of seconds with strikes
+#define MAX_NONZERO_SEC         10                     // maximal number of seconds with strikes
 
 /******************************************************************************/
 /******************************************************************************/
@@ -144,43 +143,43 @@ $PFEC,GPint,GGA01,GLL00,GSA00,GSV00,RMC01,DTM00,VTG00,ZDA00*00\n";
 
 // initialization for Garmin moduls
 char init_gps_Garmin[]= "\
-$PGRMO,GPGGA,1*00\n\
-$PGRMO,GPGSA,0*00\n\
-$PGRMO,GPGSV,0*00\n\
-$PGRMO,GPRMC,1*00\n\
-$PGRMO,GPVTG,0*00\n\
-$PGRMO,PGRMM,0*00\n\
-$PGRMO,PGRMT,0*00\n\
-$PGRMO,PGRME,0*00\n\
-$PGRMO,PGRMB,0*00\n\
-$PGRMCE*00\n";
+$PGRMO,GPGGA,1*00\r\n\
+$PGRMO,GPGSA,0*00\r\n\
+$PGRMO,GPGSV,0*00\r\n\
+$PGRMO,GPRMC,1*00\r\n\
+$PGRMO,GPVTG,0*00\r\n\
+$PGRMO,PGRMM,0*00\r\n\
+$PGRMO,PGRMT,0*00\r\n\
+$PGRMO,PGRME,0*00\r\n\
+$PGRMO,PGRMB,0*00\r\n\
+$PGRMCE*00\r\n";
 
-char init_gps_Garmin_SBAS_on[]= "$PGRMC1,1,,,,,,,W,,,,,*00\n";
-char init_gps_Garmin_SBAS_off[]= "$PGRMC1,1,,,,,,,N,,,,,*00\n";
+char init_gps_Garmin_SBAS_on[]= "$PGRMC1,1,,,,,,,W,,,,,*00\r\n";
+char init_gps_Garmin_SBAS_off[]= "$PGRMC1,1,,,,,,,N,,,,,*00\r\n";
 
-char init_gps_Garmin_4800[]= "$PGRMC,,,,,,,,,,3,,2,4,*00\n";
-char init_gps_Garmin_9600[]= "$PGRMC,,,,,,,,,,4,,2,4,*00\n";
-char init_gps_Garmin_19200[]= "$PGRMC,,,,,,,,,,5,,2,4,*00\n";
-char init_gps_Garmin_38400[]= "$PGRMC,,,,,,,,,,8,,2,4,*00\n";
+char init_gps_Garmin_4800[]= "$PGRMC,,,,,,,,,,3,,2,4,*00\r\n";
+char init_gps_Garmin_9600[]= "$PGRMC,,,,,,,,,,4,,2,4,*00\r\n";
+char init_gps_Garmin_19200[]= "$PGRMC,,,,,,,,,,5,,2,4,*00\r\n";
+char init_gps_Garmin_38400[]= "$PGRMC,,,,,,,,,,8,,2,4,*00\r\n";
 
 // initialization for SiRF moduls
 char init_gps_SiRF[]= "\
-$PSRF103,00,00,01,01*00\n\
-$PSRF103,01,00,00,01*00\n\
-$PSRF103,02,00,00,01*00\n\
-$PSRF103,03,00,00,01*00\n\
-$PSRF103,04,00,01,01*00\n\
-$PSRF103,05,00,00,01*00\n\
-$PSRF103,06,00,00,01*00\n\
-$PSRF103,08,00,00,01*00\n";
+$PSRF103,00,00,01,01*00\r\n\
+$PSRF103,01,00,00,01*00\r\n\
+$PSRF103,02,00,00,01*00\r\n\
+$PSRF103,03,00,00,01*00\r\n\
+$PSRF103,04,00,01,01*00\r\n\
+$PSRF103,05,00,00,01*00\r\n\
+$PSRF103,06,00,00,01*00\r\n\
+$PSRF103,08,00,00,01*00\r\n";
 
-char init_gps_SiRF_SBAS_on[]= "$PSRF151,01*00\n";
-char init_gps_SiRF_SBAS_off[]= "$PSRF151,00*00\n";
+char init_gps_SiRF_SBAS_on[]= "$PSRF151,01*00\r\n";
+char init_gps_SiRF_SBAS_off[]= "$PSRF151,00*00\r\n";
 
-char init_gps_SiRF_4800[]= "$PSRF100,1,4800,8,1,0*00\n";
-char init_gps_SiRF_9600[]= "$PSRF100,1,9600,8,1,0*00\n";
-char init_gps_SiRF_19200[]= "$PSRF100,1,19200,8,1,0*00\n";
-char init_gps_SiRF_38400[]= "$PSRF100,1,38400,8,1,0*00\n";
+char init_gps_SiRF_4800[]= "$PSRF100,1,4800,8,1,0*00\r\n";
+char init_gps_SiRF_9600[]= "$PSRF100,1,9600,8,1,0*00\r\n";
+char init_gps_SiRF_19200[]= "$PSRF100,1,19200,8,1,0*00\r\n";
+char init_gps_SiRF_38400[]= "$PSRF100,1,38400,8,1,0*00\r\n";
 
 /******************************************************************************/
 /***** time functions *********************************************************/
@@ -224,10 +223,10 @@ long long ensec_time ()
 }
 
 /******************************************************************************/
-/***** write log messages to log file ***************************************/
+/***** write log message to log file ******************************************/
 /******************************************************************************/
 
-void write_log_messages (const char *text)
+void write_log_message (const char *text)
 {
   int year, mon, day, min, hour;
   long double sec_nsec;
@@ -390,22 +389,28 @@ void init_gps (const char *serial_device, char *gps_type, int baudrate, bool SBA
     return; }
 
   fill_checksum (init_string);
-  write_log_messages (init_string);
+  write_log_message (init_string);
 
-  int br= 4800;
+  int br= 38400;
   for (int b=0; b<4; b++) {
     int f= open (serial_device, O_RDWR | O_NOCTTY );
     if (f == -1) {
       perror ("open()");
       exit (-1); }
     set_baudrate (f, br);
-    sprintf (buf, "initialize GPS with %s, %d baud, using %d baud\n", gps_type, baudrate, br);
-    write_log_messages (buf);
-    br+= br;
-    write (f, "55555\n55555\n55555\n", 18); // only for synchronization
+    sprintf (buf, "initialize GPS with %s, %d baud, using %d baud, please wait!\n", gps_type, baudrate, br);
+    write_log_message (buf);
+    br>>=1;
+    sleep(1);
     write (f, init_string, strlen(init_string));
-    close (f); }
-
+    usleep(500000);
+    write (f, init_string, strlen(init_string));
+    usleep(500000);
+    write (f, init_string, strlen(init_string));
+    usleep(500000);
+    close (f);
+    usleep(100000); }
+  write_log_message ("Ready!\n");
 }
 
 /******************************************************************************/
@@ -415,11 +420,46 @@ void init_gps (const char *serial_device, char *gps_type, int baudrate, bool SBA
 void send_strike (int sock_id, struct sockaddr *serv_addr, const char *username, const char *password)
 {
   char buf [STRING_BUFFER_SIZE];
+  if ((last_year < 2011)||(last_year > 2031)) {
+    write_log_message ("error: year not between 2011 and 2031\n");
+    return; }
+  if ((last_mon < 1)||(last_mon > 12)) {
+    write_log_message ("error: month not between 1 and 12\n");
+    return; }
+  if ((last_day < 1)||(last_day > 31)) {
+    write_log_message ("error: day not between 1 and 31\n");
+    return; }
+  if ((last_hour < 0)||(last_hour > 23)) {
+    write_log_message ("error: hour not between 0 and 23\n");
+    return; }
+  if ((last_min < 0)||(last_min > 59)) {
+    write_log_message ("error: minutes not between 0 and 59\n");
+    return; }
+  if ((last_sec < 0)||(last_sec > 59)) {
+    write_log_message ("error: seconds not between 0 and 59\n");
+    return; }
+  if ((last_nsec < 0)||(last_nsec > 999999999ll)) {
+    write_log_message ("error: nanoseconds not between 0 and 999999999\n");
+    return; }
+  if ((lat_average_x < -90)||(lat_average_x > 90)) {
+    write_log_message ("error: latitude not between -90 and 90\n");
+    return; }
+  if ((lon_average_x < -180)||(lat_average_x > 180)) {
+    write_log_message ("error: latitude not between -180 and 180\n");
+    return; }
+  if ((alt_average_x < -1000)||(lat_average_x > 10000)) {
+    write_log_message ("error: altitude not between -1000 and 10000\n");
+    return; }
+  if ((last_status != 'A')&&(last_status != 'V')) {
+    write_log_message ("error: status not 'A' or 'V'\n");
+    return; }
+
+
   sprintf (buf, "%04d-%02d-%02d %02d:%02d:%02d.%09lld %.6Lf %.6Lf %.0Lf %s %s %c %d %d %d %d %s %s %s %d %s\n",
     last_year, last_mon, last_day, last_hour, last_min, last_sec, last_nsec, lat_average_x, lon_average_x, alt_average_x, username, password, last_status, last_sat, last_channels, last_values, last_bits, last_data, VERSION, last_firmware, baudrate, gps_type);
 
   if (sendto (sock_id, buf, strlen (buf), 0, serv_addr, sizeof (sockaddr)) == -1) {
-    write_log_messages ("error: sendto ()\n");
+    write_log_message ("error: sendto ()\n");
     return; }
   if (verbose_sent_flag) { 
     printf ("%s", buf);
@@ -442,43 +482,39 @@ void log_status ()
   char buf [STRING_BUFFER_SIZE];
 
   if (last_checksum_error) {
-    write_log_messages ("Checksum error\n"); }
+    write_log_message ("Checksum error\n"); }
 
   if ((!(last_last_sec_ok))&&(last_sec_ok)) {
     sprintf (buf, "GPS seconds running, %d %d\n", last_last_sec, last_sec);
-    write_log_messages (buf); }
+    write_log_message (buf); }
   if ((last_last_sec_ok)&&(!(last_sec_ok))) {
     sprintf (buf, "GPS seconds stopped, %d %d\n", last_last_sec, last_sec);
-    write_log_messages (buf); }
+    write_log_message (buf); }
 
   if (last_status != last_last_status) {
     sprintf (buf, "GPS status changed from '%c' to '%c'\n", last_last_status, last_status);
-    write_log_messages (buf); }
+    write_log_message (buf); }
 
   if ((!(last_last_pos_ok))&&(last_pos_ok)) {
     sprintf (buf, "Position fixed, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", lat_average, lon_average, alt_average);
-    write_log_messages (buf); }
+    write_log_message (buf); }
   if ((last_last_pos_ok)&&(!(last_pos_ok))) {
     sprintf (buf, "Position lost, lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf\n", last_lat, last_lon, last_alt);
-    write_log_messages (buf); }
-
-//  if (last_last_sat != last_sat) {
-//    sprintf (buf, "Number of satellites changed from %d to %d\n", last_last_sat, last_sat);
-//    write_log_messages (buf); }
+    write_log_message (buf); }
 
   if ((!(last_last_accuracy_ok))&&(last_accuracy_ok)) {
     sprintf (buf, "1PPS signal accuracy ok, counter: %06llX %06llX, %+.0Lf nsec\n", last_last_counter, last_counter, time_precision*1000000000.0l);
-    write_log_messages (buf); }
+    write_log_message (buf); }
   if ((last_last_accuracy_ok)&&(!(last_accuracy_ok))) {
     sprintf (buf, "1PPS signal inaccurate, counter: %06llX %06llX, accuracy: %+.0LF nsec\n", last_last_counter, last_counter, time_precision*1000000000.0l);
-    write_log_messages (buf); }
+    write_log_message (buf); }
 
   if ((!(last_last_imode))&&(last_imode)) {
     sprintf (buf, "interference mode started, %d strikes per seconds, %d seconds nonzero\n", last_str_sec, nonzero_sec);
-    write_log_messages (buf); }
+    write_log_message (buf); }
   if ((last_last_imode)&&(!(last_imode))) {
     sprintf (buf, "interference mode stopped\n");
-    write_log_messages (buf); }
+    write_log_message (buf); }
 }
 
 void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const char *username, const char *password)
@@ -598,7 +634,7 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
       if (str_sec > 0) {
         nonzero_sec++; }
       last_last_imode= last_imode;
-      if ((str_sec >= MAX_STR_SEC)||(nonzero_sec >= MAX_NONZERO_SEC)) {
+      if (nonzero_sec >= MAX_NONZERO_SEC) {
         last_imode= true; }
       if (str_sec == 0) {
         nonzero_sec= 0;
@@ -607,7 +643,7 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
       str_sec= 0;
 
       if (verbose_info_flag) {
-        printf ("lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf, time precision: %+.0Lf nsec\n", lat_average_x, lon_average_x, alt_average_x, time_precision*1000000000.0l);
+        printf ("%.0Lf lat: %+.6Lf, lon: %+.6Lf, alt: %+.1Lf, acc: %+.0Lf nsec, sat: %d\n", dif_average, lat_average_x, lon_average_x, alt_average_x, time_precision*1000000000.0l, last_sat);
         fflush (stdout); }
 
       now_time= ensec_time ();
@@ -662,12 +698,12 @@ void evaluate (const char *line, int sock_id, struct sockaddr *serv_addr, const 
   // Firmware sentence
   else if (sscanf (line, "Firmware Version: %s", firmware) == 1) {
     strcpy(last_firmware, firmware);
-    write_log_messages (line); }
+    write_log_message (line); }
 
   // unknown sentence
   else {
     sprintf (buf, "unknown sentence: %s", line);
-    write_log_messages (buf); }
+    write_log_message (buf); }
 
   if (BLSIG_found) { 
     if (counter >  last_counter) {
@@ -715,8 +751,13 @@ int main (int argc, char **argv)
   bool flag_found;
   do {
     flag_found= false;
+    if ((argc > 0) && ((strcmp (argv[0],"-h") == 0)||(strcmp (argv[0], "--help") == 0))) {
+      flag_found= true;
+      help_flag= true;
+      argc--;
+      argv++; }
     if ((argc > 0) && ((strcmp (argv[0],"-L") == 0)||(strcmp (argv[0],"--syslog") == 0))) {
-    flag_found= true;
+      flag_found= true;
       syslog_flag= true;
       argc-=1;
       argv+=1; }
@@ -743,11 +784,6 @@ int main (int argc, char **argv)
       verbose_log_flag= true;
       argc-=1;
       argv+=1; }
-    if ((argc > 0) && ((strcmp (argv[0],"-vi") == 0)||(strcmp (argv[0],"--verbose_info") == 0))) {
-      flag_found= true;
-      verbose_info_flag= true;
-      argc-=1;
-      argv+=1; }
     if ((argc > 0) && ((strcmp (argv[0],"-vo") == 0)||(strcmp (argv[0],"--verbose_output") == 0))) {
       flag_found= true;
       verbose_output_flag= true;
@@ -756,6 +792,11 @@ int main (int argc, char **argv)
     if ((argc > 0) && ((strcmp (argv[0],"-vs") == 0)||(strcmp (argv[0],"--verbose_sent") == 0))) {
       flag_found= true;
       verbose_sent_flag= true;
+      argc-=1;
+      argv+=1; }
+    if ((argc > 0) && ((strcmp (argv[0],"-vi") == 0)||(strcmp (argv[0],"--verbose_info") == 0))) {
+      flag_found= true;
+      verbose_info_flag= true;
       argc-=1;
       argv+=1; }
     if ((argc > 0) && ((strcmp (argv[0], "-e") == 0)||(strcmp (argv[0],"--echo") == 0))) {
@@ -769,20 +810,18 @@ int main (int argc, char **argv)
       SBAS_flag= true;
       argc-=1;
       argv+=1; }
-    if ((argc > 0) && ((strcmp (argv[0],"-h") == 0)||(strcmp (argv[0], "--help") == 0))) {
-      flag_found= true;
-      help_flag= true;
-      argc--;
-      argv++; } }
+ }
   while (flag_found);
 
   if ((help_flag)||(argc != 5)) {
-    printf ("%s: [-h] [-l] [-le file] [-lo file] [-ls file] [-ve] [-vi] [-vo] [-vs] [-e serial_device] [-s] gps_type baud_rate serial_device username password\n", program_name);
+    printf ("%s: [-h] [-L] [-ll file] [-lo file] [-ls file] [-vl] [-vo] [-vs] [-vi] [-e serial_device] [-s] gps_type baud_rate serial_device username password\n", program_name);
     printf ("gps_type         : gps type (SANAV, Garmin, or SiRF ('-' for no initialization)\n");
     printf ("baud_rate        : baud rate (4800, 9600, 19200, or 38400)\n");
     printf ("serial_device    : serial device (example: /dev/ttyS0)\n");
     printf ("username         : username (example: PeterPim) \n");
-    printf ("password         : password (example: xxxxxxxx)\n");
+    printf ("password         : password (example: s36r67hi)\n");
+    printf ("-h               : print this help text\n");
+    printf ("                   alternative: --help\n");
     printf ("-L               : write log messages to the system message logger\n");
     printf ("                   altervative: --syslog \n");
     printf ("-ll file         : write log messages to file\n");
@@ -793,14 +832,12 @@ int main (int argc, char **argv)
     printf ("                   alternative: --log_sent file\n");
     printf ("-vl              : verbose mode, write log messages to stdout\n");
     printf ("                   alternative: --verbose_log\n");
-    printf ("-vi              : verbose mode, write system information to stdout\n");
-    printf ("                   alternative: --verbose_info\n");
     printf ("-vo              : verbose mode, write board output to stdout\n");
     printf ("                   alternative: --verbose_output\n");
     printf ("-vs              : verbose mode, write sent information to stdout\n");
     printf ("                   alternative: --verbose_sent\n");
-    printf ("-h               : print this help text\n");
-    printf ("                   alternative: --help\n");
+    printf ("-vi              : verbose mode, write system information to stdout\n");
+    printf ("                   alternative: --verbose_info\n");
     printf ("-e serial_device : serial device for input echo\n");
     printf ("                   alternative: --echo serial_device\n");
     printf ("-s               : activate SBAS (WAAS/EGNOS/MSAS) support\n");
@@ -813,6 +850,9 @@ int main (int argc, char **argv)
   strcpy(last_firmware, "-");
   username= argv[3];
   password= argv[4];
+  if (strcmp (password, "xxxxxxxx") == 0) {
+    printf ("This password can not be used, please change your password!\n");
+    exit (-1); }
 
   if (logfile_log_flag) {
     logfile_log_fd= fopen(logfile_log, "w"); }
@@ -823,7 +863,7 @@ int main (int argc, char **argv)
 
   char buf[STRING_BUFFER_SIZE];
 		   
-  write_log_messages ("tracker started\n");
+  write_log_message ("tracker started\n");
 
   init_gps (serial_device_in, gps_type, baudrate, SBAS_flag);
 
@@ -855,15 +895,15 @@ int main (int argc, char **argv)
     /* host not given by IP but by name */
     struct hostent *host_info= gethostbyname (SERVER_ADDR);
     if (host_info == NULL) {
-      write_log_messages ("gethostbyname () failed, try again in 10 seconds\n");
+      write_log_message ("gethostbyname () failed, try again in 10 seconds\n");
       sleep (10);
       hostent *host_info= gethostbyname (SERVER_ADDR);
       if (host_info == NULL) {
-        write_log_messages ("gethostbyname () failed, try again in 60 seconds\n");
+        write_log_message ("gethostbyname () failed, try again in 60 seconds\n");
         sleep (10);
         hostent *host_info= gethostbyname (SERVER_ADDR);
         if (host_info == NULL) {
-          write_log_messages ("gethostbyname () failed, give up, check internet connection\n");
+          write_log_message ("gethostbyname () failed, give up, check internet connection\n");
           perror ("gethostbyname ()");
           close (sock_id);
           exit (-1); } } }
@@ -879,7 +919,7 @@ int main (int argc, char **argv)
         putchar (c); }
       if (logfile_output_flag) {
         fwrite (&c, 1, 1, logfile_output_fd);
-        fflush (logfile_log_fd); }
+        fflush (logfile_output_fd); }
       buf [i]= c;
       if (i < STRING_BUFFER_SIZE-2) {
         i++; }
